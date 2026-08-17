@@ -80,12 +80,32 @@ complexity beyond that.
 
 ## Build status / progress log
 
-- [x] Expo + TypeScript + Expo Router app scaffolded, demo template files stripped
-- [ ] Supabase client packages installed
-- [ ] Auth screens (login/signup) + session-aware routing
+- [x] **Phase 1 complete** — Expo + TypeScript + Expo Router app scaffolded, demo template
+      files stripped, verified with zero TypeScript errors and zero console/server errors
+      (checked via a web render), fresh git repo initialized with first commit
+      (`46d995d`).
+- [x] **Phase 2 complete** — Supabase client + `@react-native-async-storage/async-storage` +
+      `react-native-url-polyfill` installed. Session context (`src/hooks/use-session.tsx`) wraps
+      the app; `(auth)` route group (login/signup) and `(app)` route group (placeholder home with
+      email + log out) redirect based on session state. Verified end-to-end via a web render:
+      screens display correctly, navigation between login/signup works, zero TypeScript errors.
+      Two real bugs found and fixed along the way (see "Known issues fixed" below).
 - [ ] Task-submission screen
 - [ ] History list + run detail screens
 - [ ] SQL migration for `agents` + `agent_runs` with RLS
 - [ ] Supabase Edge Function calling Anthropic
 - [ ] Fresh git repo initialized + first commit
 - [ ] Plain-language setup checklist handed to user
+
+## Known issues fixed (don't reintroduce)
+
+- **`@supabase/supabase-js` fails to bundle on web**: its `realtime-js` sub-dependency's
+  `package.json` "exports" map is misread by Metro, throwing `Unable to resolve module
+  ./RealtimeClient`. Fixed via `metro.config.js` → `config.resolver.unstable_enablePackageExports
+  = false`. Do not remove this file.
+- **Supabase auth client crashes Expo's web server-side render** (`ReferenceError: window is not
+  defined`) when its `storage` option is unconditionally set to React Native's `AsyncStorage` —
+  AsyncStorage's web implementation touches `window` directly, which doesn't exist during SSR.
+  Fixed in `src/lib/supabase.ts` by only passing `AsyncStorage` on native
+  (`Platform.OS !== 'web'`); on web, `storage` is left undefined so supabase-js falls back to its
+  own SSR-safe handling. Keep this platform check when touching that file.
