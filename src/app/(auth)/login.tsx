@@ -19,17 +19,23 @@ export default function LoginScreen() {
   async function handleLogin() {
     setError(null);
     setLoading(true);
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    setLoading(false);
-
-    if (signInError) {
-      setError(signInError.message);
-      return;
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) {
+        setError(signInError.message);
+        return;
+      }
+      router.replace('/(app)');
+    } catch {
+      // signInWithPassword rejects (rather than returning an `error` field) when
+      // the request never reaches Supabase at all, e.g. no internet connection.
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setLoading(false);
     }
-    router.replace('/(app)');
   }
 
   return (

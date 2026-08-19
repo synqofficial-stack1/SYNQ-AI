@@ -31,21 +31,27 @@ export default function SignupScreen() {
     setError(null);
     setInfo(null);
     setLoading(true);
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-    });
-    setLoading(false);
-
-    if (signUpError) {
-      setError(signUpError.message);
-      return;
+    try {
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (signUpError) {
+        setError(signUpError.message);
+        return;
+      }
+      if (data.session) {
+        router.replace('/(app)');
+        return;
+      }
+      setInfo('Account created. Check your email to confirm it, then log in.');
+    } catch {
+      // signUp rejects (rather than returning an `error` field) when the request
+      // never reaches Supabase at all, e.g. no internet connection.
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setLoading(false);
     }
-    if (data.session) {
-      router.replace('/(app)');
-      return;
-    }
-    setInfo('Account created. Check your email to confirm it, then log in.');
   }
 
   return (
