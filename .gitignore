@@ -30,9 +30,11 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env
-.env*.local
+# local env files — never commit real keys.
+# Broad pattern on purpose: catches .env, .env.local, .env.local.txt, .env.production, etc.
+# .env.example is the one tracked file (placeholders only) and is re-included below.
+.env*
+!.env.example
 
 # typescript
 *.tsbuildinfo
