@@ -71,7 +71,10 @@ complexity beyond that.
 
 ## Setup steps only the human can do (do not attempt these yourself)
 
-1. Paste the Supabase project URL + anon key into the app's env config.
+1. Paste the Supabase project URL + anon key into the app's env config. **Done** — they live in
+   `.env.local` (gitignored) as `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+   Note: Expo only reads files named exactly `.env`, `.env.local`, etc. — a `.txt` suffix is
+   ignored, and entries must use `=` (not `-`) between name and value.
 2. Create an Anthropic API key at the Anthropic Console and set it as a Supabase Edge Function
    secret (`ANTHROPIC_API_KEY`).
 3. Run the SQL migration (provided in this repo) in the Supabase SQL editor.
@@ -90,6 +93,10 @@ complexity beyond that.
       email + log out) redirect based on session state. Verified end-to-end via a web render:
       screens display correctly, navigation between login/signup works, zero TypeScript errors.
       Two real bugs found and fixed along the way (see "Known issues fixed" below).
+      **Verified end-to-end against the live Supabase project** with real accounts: sign up
+      grants access immediately, session survives a full page reload, log out returns to the
+      login screen, and logging back in works. Wrong credentials show "Invalid login
+      credentials". Fresh page load has zero console errors and all requests return 200.
 - [ ] Task-submission screen
 - [ ] History list + run detail screens
 - [ ] SQL migration for `agents` + `agent_runs` with RLS
@@ -109,3 +116,8 @@ complexity beyond that.
   Fixed in `src/lib/supabase.ts` by only passing `AsyncStorage` on native
   (`Platform.OS !== 'web'`); on web, `storage` is left undefined so supabase-js falls back to its
   own SSR-safe handling. Keep this platform check when touching that file.
+- **Email confirmation is turned OFF** in the Supabase dashboard (Authentication → Sign In /
+  Providers → Email → "Confirm email"), so signing up grants access immediately. Consequence:
+  Supabase sends no verification email at all — the toggle is all-or-nothing. Accounts created
+  *before* it was switched off stay unconfirmed and cannot log in. See the TODO in
+  `src/app/(auth)/signup.tsx` for the non-blocking verification approach if it's wanted later.

@@ -17,6 +17,16 @@ export default function SignupScreen() {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // With "Confirm email" turned OFF in the Supabase dashboard, signUp returns a
+  // session immediately and the user lands straight in the app. With it ON,
+  // Supabase sends a confirmation email and withholds the session until the user
+  // clicks the link — the `else` branch below covers that case.
+  //
+  // TODO: non-blocking email verification. Supabase's single "Confirm email"
+  // toggle is all-or-nothing (either it blocks login and sends the email, or it
+  // sends nothing). To get instant access AND a verification email, send the
+  // verification separately and show a dismissible "verify your email" banner in
+  // the app instead of gating access on it.
   async function handleSignup() {
     setError(null);
     setInfo(null);
