@@ -8,22 +8,24 @@ export function TextField({ style, onFocus, onBlur, ...props }: TextInputProps) 
   const theme = useTheme();
   const [isFocused, setIsFocused] = useState(false);
 
+  const handleFocus = (e: any) => {
+    setIsFocused(true);
+    onFocus?.(e);
+  };
+
+  const handleBlur = (e: any) => {
+    setIsFocused(false);
+    onBlur?.(e);
+  };
+
   return (
     <TextInput
       placeholderTextColor={theme.textSecondary}
       autoCapitalize="none"
       autoCorrect={false}
-      onFocus={(e) => {
-        setIsFocused(true);
-        onFocus?.(e);
-      }}
-      onBlur={(e) => {
-        setIsFocused(false);
-        onBlur?.(e);
-      }}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       {...props}
-      // `style` last so a caller can adjust height or font without losing the
-      // themed colors underneath.
       style={[
         styles.input,
         {
@@ -40,10 +42,10 @@ export function TextField({ style, onFocus, onBlur, ...props }: TextInputProps) 
 
 const styles = StyleSheet.create({
   input: {
-    borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
     fontSize: 16,
+    minHeight: 50,
   },
 });
