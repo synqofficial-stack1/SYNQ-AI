@@ -170,6 +170,10 @@ export default function SalesAgentScreen() {
 
           <View style={styles.footer}>
             <PrimaryButton
+              title="History"
+              onPress={() => router.push('/(app)/history')}
+            />
+            <PrimaryButton
               title="Import Leads"
               onPress={() => router.push('/(app)/import-leads')}
             />
