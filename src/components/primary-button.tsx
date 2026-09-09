@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 
-import { Spacing } from '@/constants/theme';
+import { AccentColors, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = {
@@ -20,7 +20,10 @@ export function PrimaryButton({ title, onPress, loading, disabled }: Props) {
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: theme.text, opacity: isDisabled ? 0.5 : pressed ? 0.8 : 1 },
+        {
+          backgroundColor: AccentColors.primary,
+          opacity: isDisabled ? 0.5 : pressed ? 0.8 : 1
+        },
       ]}
     >
       {loading ? (

@@ -7,7 +7,7 @@ import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { AccentColors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { listLeads } from '@/lib/leads';
 import { supabase } from '@/lib/supabase';
@@ -77,12 +77,17 @@ export default function SalesAgentScreen() {
                   style={[
                     styles.chip,
                     {
-                      backgroundColor: active ? theme.backgroundSelected : theme.backgroundElement,
-                      borderColor: active ? theme.text : theme.backgroundSelected,
+                      backgroundColor: active ? AccentColors.primary : theme.backgroundElement,
+                      borderColor: active ? AccentColors.primary : theme.backgroundSelected,
                     },
                   ]}
                 >
-                  <ThemedText type="small">{TASK_LABELS[type]}</ThemedText>
+                  <ThemedText
+                    type="small"
+                    style={{ color: active ? theme.background : theme.text }}
+                  >
+                    {TASK_LABELS[type]}
+                  </ThemedText>
                 </Pressable>
               );
             })}
@@ -102,13 +107,16 @@ export default function SalesAgentScreen() {
                         styles.chip,
                         {
                           backgroundColor: active
-                            ? theme.backgroundSelected
+                            ? AccentColors.primary
                             : theme.backgroundElement,
-                          borderColor: active ? theme.text : theme.backgroundSelected,
+                          borderColor: active ? AccentColors.primary : theme.backgroundSelected,
                         },
                       ]}
                     >
-                      <ThemedText type="small">
+                      <ThemedText
+                        type="small"
+                        style={{ color: active ? theme.background : theme.text }}
+                      >
                         {lead.name ?? lead.company ?? 'Unnamed lead'}
                       </ThemedText>
                     </Pressable>
