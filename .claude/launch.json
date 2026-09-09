@@ -3,15 +3,15 @@
   "configurations": [
     {
       "name": "start",
-      "runtimeExecutable": "C:\\Users\\Admin\\Desktop\\SYNQ Ai (claude code)\\node_modules\\.bin\\expo",
-      "runtimeArgs": ["start", "--port", "8083"],
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["C:\\Users\\Admin\\Desktop\\SYNQ Ai (claude code)\\node_modules\\expo\\bin\\cli", "start", "--port", "8083"],
       "port": 8083,
       "autoPort": false
     },
     {
       "name": "web",
-      "runtimeExecutable": "C:\\Users\\Admin\\Desktop\\SYNQ Ai (claude code)\\node_modules\\.bin\\expo",
-      "runtimeArgs": ["start", "--web", "--port", "8082"],
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["C:\\Users\\Admin\\Desktop\\SYNQ Ai (claude code)\\node_modules\\expo\\bin\\cli", "start", "--web", "--port", "8082"],
       "port": 8082,
       "autoPort": false
     }
