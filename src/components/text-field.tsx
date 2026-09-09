@@ -3,13 +3,16 @@ import { StyleSheet, TextInput, type TextInputProps } from 'react-native';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-export function TextField(props: TextInputProps) {
+export function TextField({ style, ...props }: TextInputProps) {
   const theme = useTheme();
   return (
     <TextInput
       placeholderTextColor={theme.textSecondary}
       autoCapitalize="none"
       autoCorrect={false}
+      {...props}
+      // `style` last so a caller can adjust height or font without losing the
+      // themed colors underneath.
       style={[
         styles.input,
         {
@@ -17,8 +20,8 @@ export function TextField(props: TextInputProps) {
           backgroundColor: theme.backgroundElement,
           borderColor: theme.backgroundSelected,
         },
+        style,
       ]}
-      {...props}
     />
   );
 }
