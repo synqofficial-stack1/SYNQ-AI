@@ -1,6 +1,6 @@
 // Runs one Sales AI task and records it in `tasks`.
 //
-// This is the only place the Anthropic key is ever read. It lives as a Supabase
+// This is the only place the Gemini API key is ever read. It lives as a Supabase
 // secret, so it is never in the mobile bundle and never travels to the client.
 //
 // The client says *which* job to run and supplies the lead. It does not supply
@@ -10,7 +10,7 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-const ANTHROPIC_MODEL = 'claude-sonnet-5';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 const MAX_TOKENS = 1024;
 
 /** Jobs the Sales AI is allowed to do. Anything else is rejected. */
@@ -62,9 +62,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Use POST.' }, 405);
 
-  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!anthropicKey) {
-    return json({ error: 'The server is missing its ANTHROPIC_API_KEY secret.' }, 500);
+  const geminiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!geminiKey) {
+    return json({ error: 'The server is missing its GEMINI_API_KEY secret.' }, 500);
   }
 
   const authHeader = req.headers.get('Authorization');
@@ -161,43 +161,49 @@ Deno.serve(async (req) => {
 
   let response: Response;
   try {
-    response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: MAX_TOKENS,
-        system: department.system_instructions,
-        messages: [{ role: 'user', content: userPrompt }],
-      }),
-    });
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: { text: department.system_instructions },
+          },
+          contents: [
+            {
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            maxOutputTokens: MAX_TOKENS,
+          },
+        }),
+      }
+    );
   } catch {
-    return fail('Could not reach Claude. Please try again.', 502);
+    return fail('Could not reach Gemini. Please try again.', 502);
   }
 
   if (!response.ok) {
     // Surface a useful hint without ever echoing the key or raw provider payload.
     const hint =
       response.status === 401
-        ? 'Claude rejected the API key. Check the ANTHROPIC_API_KEY secret in Supabase.'
+        ? 'Gemini rejected the API key. Check the GEMINI_API_KEY secret in Supabase.'
         : response.status === 429
-          ? 'Claude is rate limiting this account. Wait a moment and try again.'
-          : `Claude returned an error (${response.status}).`;
+          ? 'Gemini is rate limiting this account. Wait a moment and try again.'
+          : `Gemini returned an error (${response.status}).`;
     return fail(hint, 502);
   }
 
   const payload = await response.json();
-  const output = (payload?.content ?? [])
-    .filter((block: { type?: string }) => block?.type === 'text')
+  const output = (payload?.candidates?.[0]?.content?.parts ?? [])
+    .filter((block: { text?: string }) => block?.text)
     .map((block: { text?: string }) => block.text ?? '')
     .join('')
     .trim();
 
-  if (!output) return fail('Claude returned an empty response.', 502);
+  if (!output) return fail('Gemini returned an empty response.', 502);
 
   const { error: updateError } = await supabase
     .from('tasks')
