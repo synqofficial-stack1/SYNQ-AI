@@ -162,21 +162,28 @@ Deno.serve(async (req) => {
   let response: Response;
   try {
     response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // The key goes in a header, not the query string: URLs end up in access
+        // logs and error traces, and a billing key does not belong in either.
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': geminiKey,
+        },
         body: JSON.stringify({
           system_instruction: {
-            parts: { text: department.system_instructions },
+            parts: [{ text: department.system_instructions }],
           },
           contents: [
             {
+              role: 'user',
               parts: [{ text: userPrompt }],
             },
           ],
           generationConfig: {
             maxOutputTokens: MAX_TOKENS,
+            temperature: 0.7,
           },
         }),
       }
@@ -186,24 +193,62 @@ Deno.serve(async (req) => {
   }
 
   if (!response.ok) {
-    // Surface a useful hint without ever echoing the key or raw provider payload.
-    const hint =
-      response.status === 401
-        ? 'Gemini rejected the API key. Check the GEMINI_API_KEY secret in Supabase.'
-        : response.status === 429
-          ? 'Gemini is rate limiting this account. Wait a moment and try again.'
-          : `Gemini returned an error (${response.status}).`;
+    // Read Google's own reason so the message names the real problem, but never
+    // echo the raw payload back — it can quote the request, key header included.
+    let reason = '';
+    try {
+      const errorBody = await response.json();
+      reason = String(errorBody?.error?.message ?? '');
+    } catch {
+      // Not JSON. The status code alone still tells us enough.
+    }
+
+    // Gemini reports a bad or missing key as 400/403, not 401.
+    const looksLikeBadKey =
+      response.status === 400 || response.status === 403
+        ? /api[_ ]?key|api key not valid|permission|unregistered/i.test(reason)
+        : false;
+
+    const hint = looksLikeBadKey
+      ? 'Google rejected the API key. Check the GEMINI_API_KEY secret in Supabase — it should start with "AIza" and have no spaces around it.'
+      : response.status === 429
+        ? "You've used up the free Gemini allowance for now. Wait a few minutes and try again."
+        : response.status === 404
+          ? `Gemini has no model named "${GEMINI_MODEL}". The model name in the function needs updating.`
+          : `Gemini returned an error (${response.status})${reason ? `: ${reason}` : ''}.`;
+
     return fail(hint, 502);
   }
 
   const payload = await response.json();
-  const output = (payload?.candidates?.[0]?.content?.parts ?? [])
+
+  // Gemini answers 200 with no candidates when its safety filters block either
+  // the prompt or the reply. That is not a crash, and the user deserves to be
+  // told which of the two happened rather than shown "empty response".
+  const blockedPrompt = payload?.promptFeedback?.blockReason;
+  if (blockedPrompt) {
+    return fail(
+      `Gemini declined to process these notes (reason: ${blockedPrompt}). Try rewording them.`,
+      502
+    );
+  }
+
+  const candidate = payload?.candidates?.[0];
+  const finishReason = candidate?.finishReason;
+  if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
+    return fail(
+      `Gemini stopped partway through (reason: ${finishReason}). Try rewording the notes.`,
+      502
+    );
+  }
+
+  const output = (candidate?.content?.parts ?? [])
     .filter((block: { text?: string }) => block?.text)
     .map((block: { text?: string }) => block.text ?? '')
     .join('')
     .trim();
 
-  if (!output) return fail('Gemini returned an empty response.', 502);
+  if (!output) return fail('Gemini returned an empty response. Please try again.', 502);
 
   const { error: updateError } = await supabase
     .from('tasks')
