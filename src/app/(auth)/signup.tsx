@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AuthCard } from '@/components/auth-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -59,38 +60,40 @@ export default function SignupScreen() {
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.form}
+          style={styles.centerColumn}
         >
-          <ThemedText type="title" style={styles.title}>
-            Synq AI
-          </ThemedText>
-          <ThemedText type="subtitle" style={styles.subtitle}>
-            Create an account
-          </ThemedText>
+          <AuthCard>
+            <ThemedText type="title" style={styles.title}>
+              Synq AI
+            </ThemedText>
+            <ThemedText type="subtitle" style={styles.subtitle}>
+              Create an account
+            </ThemedText>
 
-          <TextField
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoComplete="email"
-          />
-          <TextField
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="password-new"
-          />
+            <TextField
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoComplete="email"
+            />
+            <TextField
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoComplete="password-new"
+            />
 
-          {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
-          {info ? <ThemedText style={styles.info}>{info}</ThemedText> : null}
+            {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
+            {info ? <ThemedText style={styles.info}>{info}</ThemedText> : null}
 
-          <PrimaryButton title="Sign Up" onPress={handleSignup} loading={loading} />
+            <PrimaryButton title="Sign Up" onPress={handleSignup} loading={loading} />
 
-          <Link href="/(auth)/login" style={styles.link}>
-            <ThemedText type="link">Already have an account? Log in</ThemedText>
-          </Link>
+            <Link href="/(auth)/login" style={styles.link}>
+              <ThemedText type="link">Already have an account? Log in</ThemedText>
+            </Link>
+          </AuthCard>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
@@ -100,7 +103,7 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four },
-  form: { gap: Spacing.three },
+  centerColumn: { width: '100%' },
   title: { textAlign: 'center' },
   subtitle: { textAlign: 'center', marginBottom: Spacing.three },
   error: { color: '#e5484d' },

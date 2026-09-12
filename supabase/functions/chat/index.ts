@@ -1,0 +1,559 @@
+// One turn of a conversation with a department's AI, persisted to `messages`.
+//
+// Replaces the one-shot `run-task` flow: the client sends a message and a
+// conversation id, and gets the model's reply plus the whole thread back. The
+// Gemini key and every system prompt stay server-side — the client picks a
+// `kind`, never a prompt, so no agent's behaviour can be rewritten from the app.
+//
+// The dashboard assistant (`kind: 'assistant'`) additionally gets tools. Those
+// are deliberately narrow: reads over the caller's own rows, and two creates
+// that are forced to `draft` no matter what the model asks for. Nothing can
+// publish, activate, delete, or alter a lead.
+
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+
+const GEMINI_MODEL = 'gemini-3.6-flash';
+const MAX_OUTPUT_TOKENS = 2048;
+const MAX_MESSAGE_CHARS = 8000;
+/** How many prior turns to replay. Keeps the request bounded on long threads. */
+const HISTORY_LIMIT = 40;
+/** Stops a confused model looping tools until the daily quota is gone. */
+const MAX_TOOL_CALLS = 5;
+
+const KINDS = ['assistant', 'sales_ai', 'crm', 'content', 'campaign'] as const;
+type Kind = (typeof KINDS)[number];
+
+/** Which `departments` row holds the system prompt for each kind. */
+const DEPARTMENT_FOR: Record<Kind, string> = {
+  assistant: 'workspace',
+  sales_ai: 'sales',
+  crm: 'sales_crm',
+  content: 'marketing',
+  campaign: 'marketing',
+};
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, 'Content-Type': 'application/json' },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tools
+// ---------------------------------------------------------------------------
+
+const PAGES: Record<string, string> = {
+  dashboard: '/',
+  activity: '/history',
+  'sales ai': '/sales',
+  crm: '/import-leads',
+  'cold call': '/cold-call',
+  'follow-ups': '/follow-ups',
+  marketing: '/marketing',
+  campaigns: '/campaigns',
+  content: '/content',
+};
+
+const TOOL_DECLARATIONS = [
+  {
+    name: 'get_workspace_summary',
+    description:
+      'Counts across the whole workspace: contacts, calls logged, follow-ups due, campaigns, content items. Use this for any "how many" question.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'list_leads',
+    description:
+      'Contacts in the CRM, newest first. Set uncalled_only to see just the ones with no call logged yet.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'How many to return, at most 25.' },
+        uncalled_only: { type: 'boolean', description: 'Only contacts never called.' },
+      },
+    },
+  },
+  {
+    name: 'list_campaigns',
+    description: 'Marketing campaigns with their status and goal.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'list_follow_ups',
+    description: 'Scheduled callbacks with their dates, soonest first.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_campaign',
+    description:
+      'Create a campaign. It is always saved as a draft for the user to review — you cannot make a campaign live.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        goal: { type: 'string' },
+        audience: { type: 'string' },
+        channels: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'create_content',
+    description:
+      'Create a content item. It is always saved as a draft for the user to review — you cannot publish or schedule it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        body: { type: 'string' },
+        content_type: {
+          type: 'string',
+          description: 'One of: social_post, blog_post, email, ad_copy, landing_page, video_script',
+        },
+        channel: { type: 'string' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'navigate',
+    description:
+      'Offer the user a button to a page. Pass one of: dashboard, activity, sales ai, crm, cold call, follow-ups, marketing, campaigns, content.',
+    parameters: {
+      type: 'object',
+      properties: { page: { type: 'string' } },
+      required: ['page'],
+    },
+  },
+];
+
+const CONTENT_TYPES = [
+  'social_post',
+  'blog_post',
+  'email',
+  'ad_copy',
+  'landing_page',
+  'video_script',
+];
+
+type ToolOutcome = { result: Record<string, unknown>; navigateTo?: string };
+
+async function runTool(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string,
+  args: Record<string, unknown>
+): Promise<ToolOutcome> {
+  switch (name) {
+    case 'get_workspace_summary': {
+      const [leads, calls, campaigns, content, followUps] = await Promise.all([
+        supabase.from('leads').select('id', { count: 'exact', head: true }),
+        supabase.from('calls').select('id', { count: 'exact', head: true }),
+        supabase.from('campaigns').select('id, status'),
+        supabase.from('content_items').select('id, status'),
+        supabase
+          .from('calls')
+          .select('id', { count: 'exact', head: true })
+          .not('follow_up_on', 'is', null),
+      ]);
+      const campaignRows = campaigns.data ?? [];
+      const contentRows = content.data ?? [];
+      return {
+        result: {
+          contacts: leads.count ?? 0,
+          calls_logged: calls.count ?? 0,
+          follow_ups_scheduled: followUps.count ?? 0,
+          campaigns: campaignRows.length,
+          active_campaigns: campaignRows.filter((c) => c.status === 'active').length,
+          content_items: contentRows.length,
+          content_approved_not_scheduled: contentRows.filter((c) => c.status === 'approved').length,
+        },
+      };
+    }
+
+    case 'list_leads': {
+      const limit = Math.min(Number(args.limit ?? 10) || 10, 25);
+      const { data: leads } = await supabase
+        .from('leads')
+        .select('id, name, company, phone, status')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      let rows = leads ?? [];
+      if (args.uncalled_only) {
+        const { data: called } = await supabase.from('calls').select('lead_id');
+        const calledIds = new Set((called ?? []).map((c) => c.lead_id));
+        rows = rows.filter((lead) => !calledIds.has(lead.id));
+      }
+      return { result: { count: rows.length, leads: rows } };
+    }
+
+    case 'list_campaigns': {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('id, name, goal, status, channels')
+        .order('created_at', { ascending: false })
+        .limit(25);
+      return { result: { count: (data ?? []).length, campaigns: data ?? [] } };
+    }
+
+    case 'list_follow_ups': {
+      const { data } = await supabase
+        .from('calls')
+        .select('id, outcome, follow_up_on, leads ( name, company )')
+        .not('follow_up_on', 'is', null)
+        .order('follow_up_on', { ascending: true })
+        .limit(25);
+      return { result: { count: (data ?? []).length, follow_ups: data ?? [] } };
+    }
+
+    case 'create_campaign': {
+      const name_ = String(args.name ?? '').trim();
+      if (!name_) return { result: { error: 'A campaign needs a name.' } };
+
+      const { data: department } = await supabase
+        .from('departments')
+        .select('id')
+        .eq('department_type', 'marketing')
+        .maybeSingle();
+
+      const { data, error } = await supabase
+        .from('campaigns')
+        .insert({
+          user_id: userId,
+          department_id: department?.id ?? null,
+          name: name_,
+          goal: args.goal ? String(args.goal) : null,
+          audience: args.audience ? String(args.audience) : null,
+          channels: Array.isArray(args.channels) ? args.channels.map(String) : [],
+          // Forced, not taken from the model: nothing it says can make a
+          // campaign live. Going active stays a human decision.
+          status: 'draft',
+        })
+        .select('id, name')
+        .single();
+
+      if (error) return { result: { error: error.message } };
+      return { result: { created: data, status: 'draft', note: 'Saved as a draft for review.' } };
+    }
+
+    case 'create_content': {
+      const title = String(args.title ?? '').trim();
+      if (!title) return { result: { error: 'Content needs a title.' } };
+
+      const requested = String(args.content_type ?? 'social_post');
+      const { data, error } = await supabase
+        .from('content_items')
+        .insert({
+          user_id: userId,
+          title,
+          body: args.body ? String(args.body) : null,
+          content_type: CONTENT_TYPES.includes(requested) ? requested : 'social_post',
+          channel: args.channel ? String(args.channel) : null,
+          status: 'draft',
+        })
+        .select('id, title')
+        .single();
+
+      if (error) return { result: { error: error.message } };
+      return { result: { created: data, status: 'draft', note: 'Saved as a draft for review.' } };
+    }
+
+    case 'navigate': {
+      const page = String(args.page ?? '').toLowerCase().trim();
+      const path = PAGES[page];
+      if (!path) {
+        return { result: { error: `No page called "${page}". Options: ${Object.keys(PAGES).join(', ')}.` } };
+      }
+      // The server never navigates — it hands the destination back and the
+      // client decides whether to render a button.
+      return { result: { offered: page }, navigateTo: path };
+    }
+
+    default:
+      return { result: { error: `No tool called ${name}.` } };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gemini
+// ---------------------------------------------------------------------------
+
+type GeminiPart = {
+  text?: string;
+  functionCall?: { name: string; args?: Record<string, unknown> };
+  functionResponse?: { name: string; response: unknown };
+};
+type GeminiContent = { role: 'user' | 'model'; parts: GeminiPart[] };
+
+class GeminiError extends Error {
+  constructor(message: string, readonly status = 502) {
+    super(message);
+  }
+}
+
+async function callGemini(
+  key: string,
+  systemInstruction: string,
+  contents: GeminiContent[],
+  useTools: boolean
+): Promise<GeminiPart[]> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        // Key in a header, never the query string: URLs end up in access logs.
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents,
+          ...(useTools ? { tools: [{ functionDeclarations: TOOL_DECLARATIONS }] } : {}),
+          generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS, temperature: 0.7 },
+        }),
+      }
+    );
+  } catch {
+    throw new GeminiError('Could not reach Gemini. Please try again.');
+  }
+
+  if (!response.ok) {
+    let reason = '';
+    try {
+      reason = String((await response.json())?.error?.message ?? '');
+    } catch {
+      // Not JSON; the status alone still tells us enough.
+    }
+
+    // Gemini reports a bad or missing key as 400/403, not 401.
+    const looksLikeBadKey =
+      response.status === 400 || response.status === 403
+        ? /api[_ ]?key|api key not valid|permission|unregistered/i.test(reason)
+        : false;
+
+    // Model ids get retired on a schedule, so name the ones that do work rather
+    // than leaving the next person to guess one id at a time.
+    if (response.status === 404 && !looksLikeBadKey) {
+      let available = '';
+      try {
+        const list = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': key },
+        });
+        if (list.ok) {
+          const usable = ((await list.json())?.models ?? [])
+            .filter((m: { supportedGenerationMethods?: string[] }) =>
+              m?.supportedGenerationMethods?.includes('generateContent')
+            )
+            .map((m: { name?: string }) => String(m.name ?? '').replace(/^models\//, ''))
+            .slice(0, 10);
+          if (usable.length) available = ` Models this key can use: ${usable.join(', ')}.`;
+        }
+      } catch {
+        // Best effort — the 404 is still the headline.
+      }
+      throw new GeminiError(`Gemini has no model named "${GEMINI_MODEL}".${available}`);
+    }
+
+    if (looksLikeBadKey) {
+      throw new GeminiError(
+        'Google rejected the API key. Check the GEMINI_API_KEY secret in Supabase for stray spaces or a truncated paste.'
+      );
+    }
+    if (response.status === 429) {
+      throw new GeminiError(
+        "You've used up the free Gemini allowance for now. Wait a few minutes and try again."
+      );
+    }
+    throw new GeminiError(
+      `Gemini returned an error (${response.status})${reason ? `: ${reason}` : ''}.`
+    );
+  }
+
+  const payload = await response.json();
+
+  const blocked = payload?.promptFeedback?.blockReason;
+  if (blocked) {
+    throw new GeminiError(`Gemini declined to answer (reason: ${blocked}). Try rewording that.`);
+  }
+
+  const candidate = payload?.candidates?.[0];
+  if (candidate?.finishReason === 'SAFETY' || candidate?.finishReason === 'RECITATION') {
+    throw new GeminiError(
+      `Gemini stopped partway through (reason: ${candidate.finishReason}). Try rewording that.`
+    );
+  }
+
+  return (candidate?.content?.parts ?? []) as GeminiPart[];
+}
+
+// ---------------------------------------------------------------------------
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return json({ error: 'Use POST.' }, 405);
+
+  const geminiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!geminiKey) return json({ error: 'The server is missing its GEMINI_API_KEY secret.' }, 500);
+
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) return json({ error: 'You are signed out. Log in and try again.' }, 401);
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: authHeader } } }
+  );
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const user = userData?.user;
+  if (userError || !user) return json({ error: 'You are signed out. Log in and try again.' }, 401);
+
+  let body: {
+    conversation_id?: string;
+    kind?: string;
+    context?: Record<string, unknown>;
+    message?: string;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: 'Malformed request.' }, 400);
+  }
+
+  const message = String(body.message ?? '').slice(0, MAX_MESSAGE_CHARS).trim();
+  if (!message) return json({ error: 'Type something first.' }, 400);
+
+  const kind = String(body.kind ?? '') as Kind;
+  if (!KINDS.includes(kind)) {
+    return json({ error: `Unknown chat kind. Expected one of: ${KINDS.join(', ')}.` }, 400);
+  }
+
+  const { data: department, error: departmentError } = await supabase
+    .from('departments')
+    .select('id, system_instructions')
+    .eq('department_type', DEPARTMENT_FOR[kind])
+    .maybeSingle();
+
+  if (departmentError) return json({ error: departmentError.message }, 500);
+  if (!department) {
+    return json({ error: `This account has no ${DEPARTMENT_FOR[kind]} agent configured.` }, 400);
+  }
+
+  // Resolve the thread. RLS means a conversation_id belonging to someone else
+  // simply is not found.
+  let conversationId = body.conversation_id;
+  if (conversationId) {
+    const { data: existing } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!existing) return json({ error: 'That conversation could not be found.' }, 404);
+  } else {
+    const { data: created, error: createError } = await supabase
+      .from('conversations')
+      .insert({
+        user_id: user.id,
+        department_id: department.id,
+        kind,
+        title: message.slice(0, 60),
+        context: body.context ?? {},
+      })
+      .select('id')
+      .single();
+    if (createError) return json({ error: createError.message }, 500);
+    conversationId = created.id;
+  }
+
+  const { data: history, error: historyError } = await supabase
+    .from('messages')
+    .select('role, content')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(HISTORY_LIMIT);
+  if (historyError) return json({ error: historyError.message }, 500);
+
+  const { error: saveUserError } = await supabase.from('messages').insert({
+    conversation_id: conversationId,
+    user_id: user.id,
+    role: 'user',
+    content: message,
+  });
+  if (saveUserError) return json({ error: saveUserError.message }, 500);
+
+  const contents: GeminiContent[] = [
+    ...(history ?? []).map((m) => ({
+      role: m.role as 'user' | 'model',
+      parts: [{ text: m.content }],
+    })),
+    { role: 'user', parts: [{ text: message }] },
+  ];
+
+  const useTools = kind === 'assistant';
+  const navigations: string[] = [];
+
+  let reply = '';
+  try {
+    let toolCalls = 0;
+    for (;;) {
+      const parts = await callGemini(geminiKey, department.system_instructions, contents, useTools);
+      const calls = parts.filter((p) => p.functionCall);
+
+      if (calls.length === 0 || toolCalls >= MAX_TOOL_CALLS) {
+        reply = parts
+          .filter((p) => p.text)
+          .map((p) => p.text)
+          .join('')
+          .trim();
+        break;
+      }
+
+      // Echo the model's own turn back before answering it, or the next request
+      // has a function response with nothing to respond to.
+      contents.push({ role: 'model', parts });
+
+      const responses: GeminiPart[] = [];
+      for (const part of calls) {
+        toolCalls++;
+        const call = part.functionCall!;
+        const outcome = await runTool(supabase, user.id, call.name, call.args ?? {});
+        if (outcome.navigateTo) navigations.push(outcome.navigateTo);
+        responses.push({ functionResponse: { name: call.name, response: outcome.result } });
+      }
+      contents.push({ role: 'user', parts: responses });
+    }
+  } catch (e) {
+    const error = e instanceof GeminiError ? e.message : 'Something went wrong. Please try again.';
+    return json({ error, conversation_id: conversationId }, 502);
+  }
+
+  if (!reply) reply = 'I did that, but had nothing to add.';
+
+  const { error: saveModelError } = await supabase.from('messages').insert({
+    conversation_id: conversationId,
+    user_id: user.id,
+    role: 'model',
+    content: reply,
+  });
+  if (saveModelError) return json({ error: saveModelError.message }, 500);
+
+  await supabase
+    .from('conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+
+  return json({
+    conversation_id: conversationId,
+    reply,
+    navigations: [...new Set(navigations)],
+  });
+});

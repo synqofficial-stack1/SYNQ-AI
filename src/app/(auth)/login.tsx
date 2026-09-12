@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AuthCard } from '@/components/auth-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -43,37 +44,39 @@ export default function LoginScreen() {
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.form}
+          style={styles.centerColumn}
         >
-          <ThemedText type="title" style={styles.title}>
-            Synq AI
-          </ThemedText>
-          <ThemedText type="subtitle" style={styles.subtitle}>
-            Log in
-          </ThemedText>
+          <AuthCard>
+            <ThemedText type="title" style={styles.title}>
+              Synq AI
+            </ThemedText>
+            <ThemedText type="subtitle" style={styles.subtitle}>
+              Log in
+            </ThemedText>
 
-          <TextField
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoComplete="email"
-          />
-          <TextField
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="password"
-          />
+            <TextField
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoComplete="email"
+            />
+            <TextField
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoComplete="password"
+            />
 
-          {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
+            {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
 
-          <PrimaryButton title="Log In" onPress={handleLogin} loading={loading} />
+            <PrimaryButton title="Log In" onPress={handleLogin} loading={loading} />
 
-          <Link href="/(auth)/signup" style={styles.link}>
-            <ThemedText type="link">Don&apos;t have an account? Sign up</ThemedText>
-          </Link>
+            <Link href="/(auth)/signup" style={styles.link}>
+              <ThemedText type="link">Don&apos;t have an account? Sign up</ThemedText>
+            </Link>
+          </AuthCard>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
@@ -83,7 +86,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four },
-  form: { gap: Spacing.three },
+  centerColumn: { width: '100%' },
   title: { textAlign: 'center' },
   subtitle: { textAlign: 'center', marginBottom: Spacing.three },
   error: { color: '#e5484d' },

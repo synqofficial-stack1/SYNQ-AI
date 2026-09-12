@@ -53,3 +53,123 @@ export type Task = {
 
 /** Fields the client supplies when creating a lead; the rest are DB defaults. */
 export type NewLead = Pick<Lead, 'name' | 'phone' | 'email' | 'company' | 'notes'>;
+
+// From supabase/migrations/20260912000000_cold_call.sql.
+export const CALL_OUTCOMES = [
+  'interested',
+  'call_back',
+  'no_answer',
+  'not_interested',
+  'wrong_number',
+  'qualified',
+] as const;
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
+  interested: 'Interested',
+  call_back: 'Call back',
+  no_answer: 'No answer',
+  not_interested: 'Not interested',
+  wrong_number: 'Wrong number',
+  qualified: 'Qualified',
+};
+
+export type Call = {
+  id: string;
+  user_id: string;
+  lead_id: string;
+  outcome: CallOutcome;
+  notes: string | null;
+  follow_up_on: string | null;
+  created_at: string;
+};
+
+// From supabase/migrations/20260912010000_marketing_department.sql.
+export const CAMPAIGN_STATUSES = ['draft', 'planning', 'active', 'paused', 'completed'] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+export const CAMPAIGN_STATUS_LABELS: Record<CampaignStatus, string> = {
+  draft: 'Draft',
+  planning: 'Planning',
+  active: 'Active',
+  paused: 'Paused',
+  completed: 'Completed',
+};
+
+export type Campaign = {
+  id: string;
+  user_id: string;
+  department_id: string | null;
+  name: string;
+  goal: string | null;
+  audience: string | null;
+  channels: string[];
+  budget: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  plan: string | null;
+  status: CampaignStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export const CONTENT_STATUSES = [
+  'draft',
+  'in_review',
+  'approved',
+  'scheduled',
+  'published',
+] as const;
+export type ContentStatus = (typeof CONTENT_STATUSES)[number];
+
+export const CONTENT_STATUS_LABELS: Record<ContentStatus, string> = {
+  draft: 'Draft',
+  in_review: 'In review',
+  approved: 'Approved',
+  scheduled: 'Scheduled',
+  published: 'Published',
+};
+
+export const CONTENT_TYPES = [
+  'social_post',
+  'blog_post',
+  'email',
+  'ad_copy',
+  'landing_page',
+  'video_script',
+] as const;
+export type ContentType = (typeof CONTENT_TYPES)[number];
+
+export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
+  social_post: 'Social post',
+  blog_post: 'Blog post',
+  email: 'Email',
+  ad_copy: 'Ad copy',
+  landing_page: 'Landing page',
+  video_script: 'Video script',
+};
+
+export const MARKETING_CHANNELS = [
+  'LinkedIn',
+  'Instagram',
+  'X',
+  'Email',
+  'Website',
+  'Blog',
+  'Advertising',
+] as const;
+
+export type ContentItem = {
+  id: string;
+  user_id: string;
+  campaign_id: string | null;
+  title: string;
+  body: string | null;
+  content_type: ContentType;
+  channel: string | null;
+  status: ContentStatus;
+  scheduled_for: string | null;
+  source_item_id: string | null;
+  created_at: string;
+  updated_at: string;
+};

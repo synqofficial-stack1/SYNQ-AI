@@ -14,6 +14,12 @@ export const Colors = {
     backgroundElement: '#ffffff',
     backgroundSelected: '#f0f0f0',
     textSecondary: '#666666',
+    // Surfaces sit on top of `background`; `border` is the hairline that
+    // separates them. Cards lean on these two instead of shadows.
+    surface: '#ffffff',
+    surfaceRaised: '#fafafa',
+    border: '#e4e4e4',
+    borderStrong: '#d0d0d0',
   },
   dark: {
     text: '#ffffff',
@@ -21,6 +27,10 @@ export const Colors = {
     backgroundElement: '#1a1a1a',
     backgroundSelected: '#2a2a2a',
     textSecondary: '#b0b0b0',
+    surface: '#141414',
+    surfaceRaised: '#1c1c1c',
+    border: '#262626',
+    borderStrong: '#363636',
   },
 } as const;
 
@@ -72,3 +82,15 @@ export const Spacing = {
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 800;
+
+export const Radius = {
+  control: 8,
+  card: 12,
+  modal: 14,
+  pill: 999,
+} as const;
+
+export const SidebarWidth = 240;
+
+/** Below this the sidebar stops being a column and becomes a top bar. */
+export const WideBreakpoint = 900;

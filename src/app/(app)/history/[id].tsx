@@ -182,21 +182,19 @@ export default function HistoryDetailScreen() {
               {task.input && Object.keys(task.input).length > 0 && (
                 <View style={[styles.panel, { backgroundColor: theme.backgroundElement }]}>
                   <ThemedText type="smallBold">Input</ThemedText>
-                  {(task.input as Record<string, unknown>).lead_id && (
-                    <ThemedText type="small" themeColor="textSecondary">
-                      Lead ID: {(task.input as Record<string, unknown>).lead_id}
-                    </ThemedText>
-                  )}
-                  {(task.input as Record<string, unknown>).notes && (
-                    <ThemedText type="small" selectable style={styles.inputText}>
-                      {String((task.input as Record<string, unknown>).notes)}
-                    </ThemedText>
-                  )}
-                  {(task.input as Record<string, unknown>).extra_instructions && (
-                    <ThemedText type="small" selectable style={styles.inputText}>
-                      {String((task.input as Record<string, unknown>).extra_instructions)}
-                    </ThemedText>
-                  )}
+                  {Object.entries(task.input as Record<string, unknown>)
+                    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+                    .map(([key, value]) => (
+                      <ThemedText
+                        key={key}
+                        type="small"
+                        selectable
+                        themeColor={key === 'lead_id' ? 'textSecondary' : undefined}
+                        style={styles.inputText}
+                      >
+                        {key === 'lead_id' ? `Lead ID: ${String(value)}` : String(value)}
+                      </ThemedText>
+                    ))}
                 </View>
               )}
             </>

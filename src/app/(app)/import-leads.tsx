@@ -3,7 +3,10 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ChatPanel } from '@/components/chat-panel';
+import { FileDrop } from '@/components/file-drop';
 import { PrimaryButton } from '@/components/primary-button';
+import { SalesTabs } from '@/components/sales-tabs';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -69,12 +72,22 @@ export default function ImportLeadsScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content}>
-          <ThemedText type="subtitle">Import leads</ThemedText>
+          <ThemedText type="pageTitle">CRM</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
             Open your CRM export in a spreadsheet, copy everything including the
             top row of column names, and paste it below. Columns understood:
             name, phone, email, company, notes. Anything else is ignored.
           </ThemedText>
+
+          <SalesTabs />
+
+          <FileDrop
+            onText={(text) => {
+              setCsv(text);
+              setPreview(null);
+              setImported(null);
+            }}
+          />
 
           <TextField
             placeholder={SAMPLE}
@@ -130,11 +143,17 @@ export default function ImportLeadsScreen() {
             <PrimaryButton title="Check file" onPress={handleCheck} />
           )}
 
-          <PrimaryButton
-            title="Back"
-            // Opened directly by URL there is no history to pop, so fall back to
-            // the home screen rather than doing nothing.
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(app)'))}
+          <ThemedText type="sectionTitle">Who should you be calling?</ThemedText>
+          <ChatPanel
+            kind="crm"
+            placeholder="Ask about targeting, lists, or what to say…"
+            emptyHint="Work out which businesses to target, where to get a real list of them, and what to say when you call. It has no internet or directory access, so it can't look up real companies or numbers — it will tell you where to get them instead."
+            suggestions={[
+              'Who should I target if I sell POS software to cafes?',
+              'Where do I get a real list of local businesses?',
+              'Give me an opener for a cold call',
+            ]}
+            height={360}
           />
         </ScrollView>
       </SafeAreaView>

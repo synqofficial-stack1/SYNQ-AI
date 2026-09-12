@@ -8,14 +8,29 @@ export const TASK_TYPES = [
 ] as const;
 export type SalesTaskType = (typeof TASK_TYPES)[number];
 
-export const TASK_LABELS: Record<SalesTaskType, string> = {
+export const MARKETING_TASK_TYPES = [
+  'plan_campaign',
+  'draft_content',
+  'repurpose_content',
+  'content_ideas',
+] as const;
+export type MarketingTaskType = (typeof MARKETING_TASK_TYPES)[number];
+
+export type AnyTaskType = SalesTaskType | MarketingTaskType;
+
+export const TASK_LABELS: Record<AnyTaskType, string> = {
   qualify_lead: 'Qualify this lead',
   draft_outreach_email: 'Draft an email',
   draft_call_script: 'Write a call script',
+  plan_campaign: 'Plan a campaign',
+  draft_content: 'Write content',
+  repurpose_content: 'Repurpose content',
+  content_ideas: 'Generate ideas',
 };
 
 export type RunTaskInput = {
-  taskType: SalesTaskType;
+  taskType: AnyTaskType;
+  /** Sales jobs only — marketing jobs work from `notes`. */
   leadId?: string;
   notes?: string;
   extraInstructions?: string;
@@ -26,11 +41,11 @@ export type RunTaskResult = { taskId: string; output: string };
 export class RunTaskError extends Error {}
 
 /**
- * Ask the Sales AI to do one job.
+ * Ask a department's AI to do one job.
  *
- * All the work happens in the `run-task` Edge Function — the Anthropic key and
- * the agent's system instructions both stay server-side. This only ships the
- * choice of job and the lead.
+ * All the work happens in the `run-task` Edge Function — the Gemini key and the
+ * agent's system instructions both stay server-side. This only ships the choice
+ * of job and the material to work from; the function picks the department.
  */
 export async function runTask(input: RunTaskInput): Promise<RunTaskResult> {
   const { data, error } = await supabase.functions.invoke('run-task', {
@@ -59,7 +74,7 @@ export async function runTask(input: RunTaskInput): Promise<RunTaskResult> {
     // The request never landed at all — usually the function isn't deployed yet.
     if (error.name === 'FunctionsFetchError' || /failed to send/i.test(error.message)) {
       throw new RunTaskError(
-        "Couldn't reach the Sales AI service. If this is a fresh setup, the run-task function may not be deployed yet."
+        "Couldn't reach the AI service. If this is a fresh setup, the run-task function may not be deployed yet."
       );
     }
     throw new RunTaskError(error.message);

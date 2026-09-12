@@ -4,7 +4,19 @@ import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
+  type?:
+    | 'default'
+    | 'title'
+    | 'small'
+    | 'smallBold'
+    | 'subtitle'
+    | 'link'
+    | 'linkPrimary'
+    | 'code'
+    | 'pageTitle'
+    | 'sectionTitle'
+    | 'caption'
+    | 'metric';
   themeColor?: ThemeColor;
 };
 
@@ -23,6 +35,10 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
         type === 'link' && styles.link,
         type === 'linkPrimary' && styles.linkPrimary,
         type === 'code' && styles.code,
+        type === 'pageTitle' && styles.pageTitle,
+        type === 'sectionTitle' && styles.sectionTitle,
+        type === 'caption' && styles.caption,
+        type === 'metric' && styles.metric,
         style,
       ]}
       {...rest}
@@ -69,5 +85,30 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.mono,
     fontWeight: Platform.select({ android: 700 }) ?? 500,
     fontSize: 12,
+  },
+  // `title`/`subtitle` above are display sizes from the original template. These
+  // four are the working scale for the workspace: dense enough to scan.
+  pageTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: 600,
+    letterSpacing: -0.4,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: 600,
+    letterSpacing: -0.2,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: 500,
+  },
+  metric: {
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: 600,
+    letterSpacing: -0.6,
   },
 });

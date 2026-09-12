@@ -1,26 +1,75 @@
-// Runs one Sales AI task and records it in `tasks`.
+// Runs one department AI task and records it in `tasks`.
 //
 // This is the only place the Gemini API key is ever read. It lives as a Supabase
 // secret, so it is never in the mobile bundle and never travels to the client.
 //
-// The client says *which* job to run and supplies the lead. It does not supply
-// the agent's instructions: those are read from the caller's own `departments`
-// row inside this function. A client that tries to send its own system prompt is
-// ignored, so the agent's behaviour cannot be rewritten from the app.
+// The client says *which* job to run and supplies the material. It does not
+// supply the agent's instructions: those are read from the caller's own
+// `departments` row inside this function, chosen by the job's department. A
+// client that tries to send its own system prompt is ignored, so no agent's
+// behaviour can be rewritten from the app.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const MAX_TOKENS = 1024;
+const GEMINI_MODEL = 'gemini-3.6-flash';
 
-/** Jobs the Sales AI is allowed to do. Anything else is rejected. */
-const TASK_TYPES = ['qualify_lead', 'draft_outreach_email', 'draft_call_script'] as const;
-type TaskType = (typeof TASK_TYPES)[number];
+/**
+ * Every job either department can do. The department decides which system
+ * prompt is loaded, so adding a job is one entry here plus a JOB section in that
+ * department's instructions — no second function, no duplicated plumbing.
+ */
+type TaskSpec = {
+  department: 'sales' | 'marketing';
+  instruction: string;
+  /** Heading the user's input is filed under in the prompt. */
+  inputLabel: string;
+  maxTokens: number;
+};
 
-const INSTRUCTION_FOR: Record<TaskType, string> = {
-  qualify_lead: 'Do JOB 1: qualify this lead.',
-  draft_outreach_email: 'Do JOB 2: write the outreach email.',
-  draft_call_script: 'Do JOB 2: write the phone call script.',
+const TASK_SPECS: Record<string, TaskSpec> = {
+  qualify_lead: {
+    department: 'sales',
+    instruction: 'Do JOB 1: qualify this lead.',
+    inputLabel: 'LEAD',
+    maxTokens: 1024,
+  },
+  draft_outreach_email: {
+    department: 'sales',
+    instruction: 'Do JOB 2: write the outreach email.',
+    inputLabel: 'LEAD',
+    maxTokens: 1024,
+  },
+  draft_call_script: {
+    department: 'sales',
+    instruction: 'Do JOB 2: write the phone call script.',
+    inputLabel: 'LEAD',
+    maxTokens: 1024,
+  },
+  plan_campaign: {
+    department: 'marketing',
+    instruction: 'Do JOB 1: plan this campaign.',
+    inputLabel: 'BRIEF',
+    // Eight headed sections; 1024 clipped the plan mid-way.
+    maxTokens: 2048,
+  },
+  draft_content: {
+    department: 'marketing',
+    instruction: 'Do JOB 2: write this piece of content.',
+    inputLabel: 'BRIEF',
+    maxTokens: 1536,
+  },
+  repurpose_content: {
+    department: 'marketing',
+    instruction: 'Do JOB 3: repurpose this content.',
+    inputLabel: 'SOURCE CONTENT',
+    maxTokens: 2048,
+  },
+  content_ideas: {
+    department: 'marketing',
+    instruction: 'Do JOB 4: generate content ideas.',
+    inputLabel: 'BRIEF',
+    maxTokens: 1024,
+  },
 };
 
 // Caps so one request cannot run up an unbounded bill.
@@ -89,25 +138,30 @@ Deno.serve(async (req) => {
     return json({ error: 'Malformed request.' }, 400);
   }
 
-  const taskType = body.task_type as TaskType;
-  if (!TASK_TYPES.includes(taskType)) {
-    return json({ error: `Unknown task type. Expected one of: ${TASK_TYPES.join(', ')}.` }, 400);
+  const taskType = String(body.task_type ?? '');
+  const spec = TASK_SPECS[taskType];
+  if (!spec) {
+    return json(
+      { error: `Unknown task type. Expected one of: ${Object.keys(TASK_SPECS).join(', ')}.` },
+      400
+    );
   }
 
   const { data: department, error: departmentError } = await supabase
     .from('departments')
     .select('id, system_instructions')
-    .eq('department_type', 'sales')
+    .eq('department_type', spec.department)
     .maybeSingle();
 
   if (departmentError) return json({ error: departmentError.message }, 500);
   if (!department) {
-    return json({ error: 'No Sales AI department found for this account.' }, 400);
+    return json({ error: `No ${spec.department} department found for this account.` }, 400);
   }
 
-  // Either work from a saved lead, or from notes typed straight into the app.
-  let leadDescription: string;
-  const leadId = body.lead_id;
+  // Sales jobs may reference a saved lead; everything else works from the text
+  // the user typed. Both end up as one labelled block in the prompt.
+  let inputBlock: string;
+  const leadId = spec.department === 'sales' ? body.lead_id : undefined;
   if (leadId) {
     const { data: lead, error: leadError } = await supabase
       .from('leads')
@@ -116,11 +170,21 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (leadError) return json({ error: leadError.message }, 500);
     if (!lead) return json({ error: 'That lead could not be found.' }, 404);
-    leadDescription = describeLead(lead);
+    inputBlock = describeLead(lead);
   } else {
     const notes = String(body.notes ?? '').slice(0, MAX_NOTES_CHARS).trim();
-    if (!notes) return json({ error: 'Add some notes about the lead first.' }, 400);
-    leadDescription = `Notes:\n${notes}`;
+    if (!notes) {
+      return json(
+        {
+          error:
+            spec.department === 'sales'
+              ? 'Add some notes about the lead first.'
+              : 'Describe what you want before running this.',
+        },
+        400
+      );
+    }
+    inputBlock = notes;
   }
 
   const extra = String(body.extra_instructions ?? '').slice(0, MAX_EXTRA_CHARS).trim();
@@ -150,10 +214,10 @@ Deno.serve(async (req) => {
   };
 
   const userPrompt = [
-    INSTRUCTION_FOR[taskType],
+    spec.instruction,
     '',
-    'LEAD',
-    leadDescription,
+    spec.inputLabel,
+    inputBlock,
     extra ? `\nEXTRA INSTRUCTIONS FROM THE USER\n${extra}` : '',
   ]
     .join('\n')
@@ -182,7 +246,7 @@ Deno.serve(async (req) => {
             },
           ],
           generationConfig: {
-            maxOutputTokens: MAX_TOKENS,
+            maxOutputTokens: spec.maxTokens,
             temperature: 0.7,
           },
         }),
@@ -209,13 +273,35 @@ Deno.serve(async (req) => {
         ? /api[_ ]?key|api key not valid|permission|unregistered/i.test(reason)
         : false;
 
+    // Google retires model ids on a schedule, so a 404 here is routine rather
+    // than exotic. Name the models this key can actually reach: otherwise the
+    // only way to find the replacement is to guess one id at a time.
+    if (response.status === 404 && !looksLikeBadKey) {
+      let available = '';
+      try {
+        const list = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': geminiKey },
+        });
+        if (list.ok) {
+          const usable = ((await list.json())?.models ?? [])
+            .filter((model: { supportedGenerationMethods?: string[] }) =>
+              model?.supportedGenerationMethods?.includes('generateContent')
+            )
+            .map((model: { name?: string }) => String(model.name ?? '').replace(/^models\//, ''))
+            .slice(0, 10);
+          if (usable.length) available = ` Models this key can use: ${usable.join(', ')}.`;
+        }
+      } catch {
+        // Best effort — the 404 is still the headline without the list.
+      }
+      return fail(`Gemini has no model named "${GEMINI_MODEL}".${available}`, 502);
+    }
+
     const hint = looksLikeBadKey
-      ? 'Google rejected the API key. Check the GEMINI_API_KEY secret in Supabase — it should start with "AIza" and have no spaces around it.'
+      ? 'Google rejected the API key. Check the GEMINI_API_KEY secret in Supabase for stray spaces or a truncated paste.'
       : response.status === 429
         ? "You've used up the free Gemini allowance for now. Wait a few minutes and try again."
-        : response.status === 404
-          ? `Gemini has no model named "${GEMINI_MODEL}". The model name in the function needs updating.`
-          : `Gemini returned an error (${response.status})${reason ? `: ${reason}` : ''}.`;
+        : `Gemini returned an error (${response.status})${reason ? `: ${reason}` : ''}.`;
 
     return fail(hint, 502);
   }
