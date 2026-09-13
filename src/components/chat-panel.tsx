@@ -18,8 +18,6 @@ const PAGE_LABELS: Record<string, string> = {
   '/cold-call': 'Cold Call',
   '/follow-ups': 'Follow-ups',
   '/marketing': 'Marketing',
-  '/campaigns': 'Campaigns',
-  '/content': 'Content',
 };
 
 export function ChatPanel({

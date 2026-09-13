@@ -263,7 +263,7 @@ export default function DashboardScreen() {
               <View style={styles.deptMain}>
                 <ThemedText type="small">Marketing</ThemedText>
                 <ThemedText type="caption" themeColor="textSecondary">
-                  Plans campaigns and writes content
+                  Brainstorm campaigns and copy
                 </ThemedText>
               </View>
               <View style={[styles.badge, { borderColor: AccentColors.success }]}>

@@ -29,7 +29,7 @@ const DEPARTMENTS: NavEntry[] = [
     path: '/sales',
     alsoMatches: ['/import-leads', '/cold-call', '/follow-ups'],
   },
-  { label: 'Marketing', path: '/marketing', alsoMatches: ['/campaigns', '/content'] },
+  { label: 'Marketing', path: '/marketing' },
 ];
 
 function NavItem({

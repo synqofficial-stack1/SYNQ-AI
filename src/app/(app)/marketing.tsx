@@ -1,49 +1,22 @@
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import { MarketingTabs } from '@/components/marketing-tabs';
+import { ChatPanel } from '@/components/chat-panel';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
-import { loadMarketingSummary, type MarketingSummary } from '@/lib/marketing';
+import { MaxContentWidth, Spacing, WideBreakpoint } from '@/constants/theme';
 
-function Metric({ label, value, note }: { label: string; value: string; note: string }) {
-  const theme = useTheme();
-  return (
-    <View
-      style={[
-        styles.card,
-        styles.metricCard,
-        { backgroundColor: theme.surface, borderColor: theme.border },
-      ]}
-    >
-      <ThemedText type="caption" themeColor="textSecondary" style={styles.metricLabel}>
-        {label}
-      </ThemedText>
-      <ThemedText type="metric">{value}</ThemedText>
-      <ThemedText type="caption" themeColor="textSecondary">
-        {note}
-      </ThemedText>
-    </View>
-  );
-}
+// Marketing is one chat and nothing else.
+//
+// It used to be three pages with campaign rows, content rows, statuses and a
+// tab strip, none of which could actually post, send or launch anything — so
+// every status on them was a status about a draft. A chat is the honest shape
+// for that: it helps you think, and says so.
+//
+// `kind` decides which system prompt the server loads. Both 'campaign' and
+// 'content' resolve to the marketing department; this uses one of them rather
+// than introducing a kind the conversations table would reject.
 
-export default function MarketingOverviewScreen() {
-  const theme = useTheme();
-  const { width } = useWindowDimensions();
-  const [summary, setSummary] = useState<MarketingSummary | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  const load = useCallback(() => {
-    setFailed(false);
-    loadMarketingSummary()
-      .then(setSummary)
-      .catch(() => setFailed(true));
-  }, []);
-
-  useEffect(load, [load]);
-
+export default function MarketingScreen() {
+  const { width, height } = useWindowDimensions();
   const wide = width >= WideBreakpoint;
 
   return (
@@ -51,108 +24,26 @@ export default function MarketingOverviewScreen() {
       <View style={styles.header}>
         <ThemedText type="pageTitle">Marketing</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Your marketing command center.
+          Think out loud about campaigns, positioning and copy. It drafts and argues back. It
+          does not post anything.
         </ThemedText>
       </View>
 
-      <MarketingTabs />
-
-      {failed ? (
-        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <ThemedText type="small">Something went wrong loading Marketing.</ThemedText>
-          <Pressable accessibilityRole="button" onPress={load}>
-            <ThemedText type="small" style={{ color: AccentColors.primary }}>
-              Try again
-            </ThemedText>
-          </Pressable>
-        </View>
-      ) : (
-        <>
-          <View style={[styles.metrics, !wide && styles.metricsStacked]}>
-            <Metric
-              label="CAMPAIGNS"
-              value={summary ? String(summary.campaignCount) : '—'}
-              note={summary ? `${summary.activeCampaigns} active` : 'Loading'}
-            />
-            <Metric
-              label="CONTENT"
-              value={summary ? String(summary.contentCount) : '—'}
-              note={summary ? `${summary.scheduledContent} scheduled` : 'Loading'}
-            />
-            <Metric
-              label="LEADS GENERATED"
-              value={summary ? String(summary.leadsFromCampaigns) : '—'}
-              note="Passed to Sales"
-            />
-          </View>
-
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <ThemedText type="sectionTitle">Marketing brief</ThemedText>
-            {summary === null ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                Loading…
-              </ThemedText>
-            ) : (
-              summary.brief.map((line) => (
-                <ThemedText key={line} type="small" themeColor="textSecondary">
-                  {line}
-                </ThemedText>
-              ))
-            )}
-            <ThemedText type="caption" themeColor="textSecondary" style={styles.footnote}>
-              Counted from your own campaigns, content and leads. Reach, engagement and
-              cost-per-lead need a channel integration before they can be reported.
-            </ThemedText>
-          </View>
-
-          {summary && summary.recommendations.length > 0 ? (
-            <View
-              style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
-            >
-              <ThemedText type="sectionTitle">Recommended actions</ThemedText>
-              {summary.recommendations.map((rec) => (
-                <View key={rec.title} style={[styles.recRow, { borderColor: theme.border }]}>
-                  <View style={styles.recMain}>
-                    <ThemedText type="small">{rec.title}</ThemedText>
-                    <ThemedText type="caption" themeColor="textSecondary">
-                      {rec.reason}
-                    </ThemedText>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => router.push(rec.path as Parameters<typeof router.push>[0])}
-                    style={({ hovered }) => [
-                      styles.recAction,
-                      {
-                        borderColor: theme.border,
-                        backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
-                      },
-                    ]}
-                  >
-                    <ThemedText type="caption" style={{ color: AccentColors.primary }}>
-                      Open
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <ThemedText type="sectionTitle">Marketing feeds Sales</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Leads generated by a campaign are written straight into the same CRM that Cold Call
-              works through, tagged with the campaign that produced them. There is no separate
-              marketing lead list to reconcile.
-            </ThemedText>
-            <Pressable accessibilityRole="button" onPress={() => router.push('/cold-call')}>
-              <ThemedText type="small" style={{ color: AccentColors.primary }}>
-                Open Cold Call →
-              </ThemedText>
-            </Pressable>
-          </View>
-        </>
-      )}
+      <ChatPanel
+        kind="campaign"
+        placeholder="What are we trying to sell, and to whom?"
+        emptyHint="Describe your business and who you want to reach, and we can work from there."
+        suggestions={[
+          'Help me position a website service for local salons',
+          'Write three Instagram captions for a launch',
+          'What should I post in my first week?',
+        ]}
+        // Sizes the message list, not the panel: the header, suggestion row and
+        // input box add roughly 170px on top, and the page itself does not
+        // scroll, so anything taller pushes the input off the bottom of the
+        // screen where it cannot be reached.
+        height={wide ? Math.max(height - 380, 320) : 360}
+      />
     </ScrollView>
   );
 }
@@ -162,33 +53,8 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
     padding: Spacing.five,
     width: '100%',
-    maxWidth: 1100,
+    maxWidth: MaxContentWidth,
     alignSelf: 'center',
   },
   header: { gap: Spacing.one },
-  card: {
-    gap: Spacing.two,
-    padding: Spacing.four,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-  },
-  metrics: { flexDirection: 'row', gap: Spacing.three },
-  metricsStacked: { flexDirection: 'column' },
-  metricCard: { flex: 1, gap: Spacing.one },
-  metricLabel: { letterSpacing: 0.8, fontSize: 11 },
-  footnote: { paddingTop: Spacing.two },
-  recRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderTopWidth: 1,
-  },
-  recMain: { flex: 1, gap: 2 },
-  recAction: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two - 2,
-    borderRadius: Radius.control,
-    borderWidth: 1,
-  },
 });

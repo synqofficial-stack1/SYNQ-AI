@@ -6,9 +6,9 @@
 // `kind`, never a prompt, so no agent's behaviour can be rewritten from the app.
 //
 // The dashboard assistant (`kind: 'assistant'`) additionally gets tools. Those
-// are deliberately narrow: reads over the caller's own rows, and two creates
-// that are forced to `draft` no matter what the model asks for. Nothing can
-// publish, activate, delete, or alter a lead.
+// are deliberately narrow: reads over the caller's own rows, plus starting a
+// sales run, which builds a list and stops. Nothing can publish, delete, alter
+// a lead, or place a call.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -33,19 +33,18 @@ const DEPARTMENT_FOR: Record<Kind, string> = {
 };
 
 /**
- * Which tools each agent may call. Absent means no tools at all.
+ * Which tools each agent may call. Absent means no tools at all, which is the
+ * case for the marketing kinds: they brainstorm, and brainstorming needs no
+ * access to anyone's rows.
  *
  * The CRM coach gets reads over the caller's own contacts and nothing else — it
- * advises on who to call, so it has no business creating campaigns or content.
+ * advises on who to call, so it has no reason to start a run or write anything.
  */
 const TOOLS_FOR: Partial<Record<Kind, string[]>> = {
   assistant: [
     'get_workspace_summary',
     'list_leads',
-    'list_campaigns',
     'list_follow_ups',
-    'create_campaign',
-    'create_content',
     'start_sales_run',
     'check_run_status',
     'navigate',
@@ -85,15 +84,13 @@ const PAGES: Record<string, string> = {
   'cold call': '/cold-call',
   'follow-ups': '/follow-ups',
   marketing: '/marketing',
-  campaigns: '/campaigns',
-  content: '/content',
 };
 
 const TOOL_DECLARATIONS = [
   {
     name: 'get_workspace_summary',
     description:
-      'Counts across the whole workspace: contacts, calls logged, follow-ups due, campaigns, content items. Use this for any "how many" question.',
+      'Counts across the whole workspace: contacts, calls logged, follow-ups due. Use this for any "how many" question.',
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -109,47 +106,9 @@ const TOOL_DECLARATIONS = [
     },
   },
   {
-    name: 'list_campaigns',
-    description: 'Marketing campaigns with their status and goal.',
-    parameters: { type: 'object', properties: {} },
-  },
-  {
     name: 'list_follow_ups',
     description: 'Scheduled callbacks with their dates, soonest first.',
     parameters: { type: 'object', properties: {} },
-  },
-  {
-    name: 'create_campaign',
-    description:
-      'Create a campaign. It is always saved as a draft for the user to review — you cannot make a campaign live.',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        goal: { type: 'string' },
-        audience: { type: 'string' },
-        channels: { type: 'array', items: { type: 'string' } },
-      },
-      required: ['name'],
-    },
-  },
-  {
-    name: 'create_content',
-    description:
-      'Create a content item. It is always saved as a draft for the user to review — you cannot publish or schedule it.',
-    parameters: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        body: { type: 'string' },
-        content_type: {
-          type: 'string',
-          description: 'One of: social_post, blog_post, email, ad_copy, landing_page, video_script',
-        },
-        channel: { type: 'string' },
-      },
-      required: ['title'],
-    },
   },
   {
     name: 'start_sales_run',
@@ -184,22 +143,13 @@ const TOOL_DECLARATIONS = [
   {
     name: 'navigate',
     description:
-      'Offer the user a button to a page. Pass one of: dashboard, activity, sales ai, crm, cold call, follow-ups, marketing, campaigns, content.',
+      'Offer the user a button to a page. Pass one of: dashboard, activity, sales ai, crm, cold call, follow-ups, marketing.',
     parameters: {
       type: 'object',
       properties: { page: { type: 'string' } },
       required: ['page'],
     },
   },
-];
-
-const CONTENT_TYPES = [
-  'social_post',
-  'blog_post',
-  'email',
-  'ad_copy',
-  'landing_page',
-  'video_script',
 ];
 
 type ToolOutcome = { result: Record<string, unknown>; navigateTo?: string };
@@ -212,27 +162,19 @@ async function runTool(
 ): Promise<ToolOutcome> {
   switch (name) {
     case 'get_workspace_summary': {
-      const [leads, calls, campaigns, content, followUps] = await Promise.all([
+      const [leads, calls, followUps] = await Promise.all([
         supabase.from('leads').select('id', { count: 'exact', head: true }),
         supabase.from('calls').select('id', { count: 'exact', head: true }),
-        supabase.from('campaigns').select('id, status'),
-        supabase.from('content_items').select('id, status'),
         supabase
           .from('calls')
           .select('id', { count: 'exact', head: true })
           .not('follow_up_on', 'is', null),
       ]);
-      const campaignRows = campaigns.data ?? [];
-      const contentRows = content.data ?? [];
       return {
         result: {
           contacts: leads.count ?? 0,
           calls_logged: calls.count ?? 0,
           follow_ups_scheduled: followUps.count ?? 0,
-          campaigns: campaignRows.length,
-          active_campaigns: campaignRows.filter((c) => c.status === 'active').length,
-          content_items: contentRows.length,
-          content_approved_not_scheduled: contentRows.filter((c) => c.status === 'approved').length,
         },
       };
     }
@@ -254,15 +196,6 @@ async function runTool(
       return { result: { count: rows.length, leads: rows } };
     }
 
-    case 'list_campaigns': {
-      const { data } = await supabase
-        .from('campaigns')
-        .select('id, name, goal, status, channels')
-        .order('created_at', { ascending: false })
-        .limit(25);
-      return { result: { count: (data ?? []).length, campaigns: data ?? [] } };
-    }
-
     case 'list_follow_ups': {
       const { data } = await supabase
         .from('calls')
@@ -271,58 +204,6 @@ async function runTool(
         .order('follow_up_on', { ascending: true })
         .limit(25);
       return { result: { count: (data ?? []).length, follow_ups: data ?? [] } };
-    }
-
-    case 'create_campaign': {
-      const name_ = String(args.name ?? '').trim();
-      if (!name_) return { result: { error: 'A campaign needs a name.' } };
-
-      const { data: department } = await supabase
-        .from('departments')
-        .select('id')
-        .eq('department_type', 'marketing')
-        .maybeSingle();
-
-      const { data, error } = await supabase
-        .from('campaigns')
-        .insert({
-          user_id: userId,
-          department_id: department?.id ?? null,
-          name: name_,
-          goal: args.goal ? String(args.goal) : null,
-          audience: args.audience ? String(args.audience) : null,
-          channels: Array.isArray(args.channels) ? args.channels.map(String) : [],
-          // Forced, not taken from the model: nothing it says can make a
-          // campaign live. Going active stays a human decision.
-          status: 'draft',
-        })
-        .select('id, name')
-        .single();
-
-      if (error) return { result: { error: error.message } };
-      return { result: { created: data, status: 'draft', note: 'Saved as a draft for review.' } };
-    }
-
-    case 'create_content': {
-      const title = String(args.title ?? '').trim();
-      if (!title) return { result: { error: 'Content needs a title.' } };
-
-      const requested = String(args.content_type ?? 'social_post');
-      const { data, error } = await supabase
-        .from('content_items')
-        .insert({
-          user_id: userId,
-          title,
-          body: args.body ? String(args.body) : null,
-          content_type: CONTENT_TYPES.includes(requested) ? requested : 'social_post',
-          channel: args.channel ? String(args.channel) : null,
-          status: 'draft',
-        })
-        .select('id, title')
-        .single();
-
-      if (error) return { result: { error: error.message } };
-      return { result: { created: data, status: 'draft', note: 'Saved as a draft for review.' } };
     }
 
     case 'start_sales_run': {

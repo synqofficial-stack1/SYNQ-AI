@@ -83,18 +83,15 @@ export async function loadUsage(): Promise<UsageStats> {
   since.setHours(0, 0, 0, 0);
   const sinceIso = since.toISOString();
 
-  const [tasksResult, messagesResult, callsResult, campaignsResult, contentResult] =
-    await Promise.all([
-      supabase.from('tasks').select('created_at, task_type').gte('created_at', sinceIso),
-      supabase
-        .from('messages')
-        .select('created_at, role, conversations ( kind )')
-        .eq('role', 'user')
-        .gte('created_at', sinceIso),
-      supabase.from('calls').select('created_at').gte('created_at', sinceIso),
-      supabase.from('campaigns').select('created_at').gte('created_at', sinceIso),
-      supabase.from('content_items').select('created_at').gte('created_at', sinceIso),
-    ]);
+  const [tasksResult, messagesResult, callsResult] = await Promise.all([
+    supabase.from('tasks').select('created_at, task_type').gte('created_at', sinceIso),
+    supabase
+      .from('messages')
+      .select('created_at, role, conversations ( kind )')
+      .eq('role', 'user')
+      .gte('created_at', sinceIso),
+    supabase.from('calls').select('created_at').gte('created_at', sinceIso),
+  ]);
 
   if (tasksResult.error) throw new Error(tasksResult.error.message);
 
@@ -104,8 +101,6 @@ export async function loadUsage(): Promise<UsageStats> {
     conversations: { kind: string } | null;
   }[];
   const calls = callsResult.data ?? [];
-  const campaigns = campaignsResult.data ?? [];
-  const content = contentResult.data ?? [];
 
   const buckets = new Map<string, number>();
   const days: UsageDay[] = [];
@@ -140,8 +135,8 @@ export async function loadUsage(): Promise<UsageStats> {
     { label: 'Workspace assistant', count: byKind('assistant') },
     { label: 'CRM coach', count: byKind('crm') },
     { label: 'Calls logged', count: calls.length },
-    { label: 'Campaigns created', count: campaigns.length },
-    { label: 'Content saved', count: content.length },
+    // No campaign or content rows here any more: Marketing is a chat, so its
+    // activity is already counted as messages above.
   ].filter((row) => row.count > 0);
 
   const counts = days.map((day) => day.count);

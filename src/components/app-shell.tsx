@@ -21,9 +21,7 @@ const TITLES: Record<string, string> = {
   '/sales': 'Sales',
   '/cold-call': 'Sales · Cold Call',
   '/follow-ups': 'Sales · Follow-ups',
-  '/marketing': 'Marketing · Overview',
-  '/campaigns': 'Marketing · Campaigns',
-  '/content': 'Marketing · Content',
+  '/marketing': 'Marketing',
   '/upgrade': 'Plans',
 };
 
@@ -35,8 +33,6 @@ const DESTINATIONS = [
   { label: 'Cold Call', path: '/cold-call' },
   { label: 'Follow-ups', path: '/follow-ups' },
   { label: 'Marketing', path: '/marketing' },
-  { label: 'Campaigns', path: '/campaigns' },
-  { label: 'Content', path: '/content' },
   { label: 'Plans', path: '/upgrade' },
 ];
 
@@ -126,19 +122,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       </View>
 
       <Modal visible={drawerOpen && !isWide} transparent animationType="fade">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close navigation"
-          style={styles.drawerBackdrop}
-          onPress={() => setDrawerOpen(false)}
-        >
-          {/* Claims the touch so taps inside the drawer don't reach the backdrop.
-              A View, not a Pressable — nesting one button inside another is
-              invalid markup. */}
-          <View style={styles.drawerPanel} onStartShouldSetResponder={() => true}>
-            {sidebar}
-          </View>
-        </Pressable>
+        <View style={styles.drawerBackdrop}>
+          {/* The dismiss target sits behind the drawer as a sibling. Wrapping
+              the drawer in a Pressable would put every link in the sidebar
+              inside a <button> on web, which is invalid and swallows the taps
+              it was meant to pass through. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close navigation"
+            onPress={() => setDrawerOpen(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.drawerPanel}>{sidebar}</View>
+        </View>
       </Modal>
 
       {/* Same `kind` as the dashboard panel, and both reopen the most recent
@@ -147,13 +143,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         visible={assistantOpen}
         onClose={() => setAssistantOpen(false)}
         title="Ask Synq"
-        description="Reads your real workspace. Creates drafts only — it never publishes or deletes."
+        description="Reads your real workspace. It can find businesses to call, but never places a call itself."
         align="top"
       >
         <ChatPanel
           kind="assistant"
           placeholder="Ask about your workspace, or tell it what to do…"
-          emptyHint="Ask anything about your contacts, calls, campaigns or content. It can take you to any page, and can draft a campaign or a piece of content for you to review."
+          emptyHint="Ask about your contacts, calls or follow-ups. It can also find local businesses to call and build the list for you to approve."
           suggestions={['What needs my attention?', 'Where should I start?']}
           height={340}
         />
