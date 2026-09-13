@@ -37,33 +37,46 @@ function readEnvFile(file) {
   return values;
 }
 
+/** Twilio auth failures, as opposed to a refusal of the call itself. */
+const AUTH_ERROR_CODES = new Set([20003, 8001]);
+
 function resolveCredentials(env) {
   const accountSid = env.TWILIO_ACCOUNT_SID;
-
-  // Twilio takes either the account's own auth token, or an API key pair. The
-  // account SID is needed either way, because it is part of the request path.
-  const apiKeySid = env.TWILIO_API_KEY_SID || env.TWILIO_SALES_CALLIN_API;
-  const apiKeySecret = env.TWILIO_API_KEY_SECRET || env.TWILIO_CLIENT_SECRET;
-  const authToken = env.TWILIO_AUTH_TOKEN;
 
   if (!accountSid) {
     throw new Error(
       'TWILIO_ACCOUNT_SID is missing from .env.local. It starts with "AC" and is on the\n' +
-        'front page of the Twilio console. The API key you already saved cannot replace it,\n' +
-        'because the account SID is part of the request URL.'
+        'front page of the Twilio console. An API key cannot replace it, because the\n' +
+        'account SID is part of the request URL.'
     );
   }
   if (!accountSid.startsWith('AC')) {
     throw new Error(`TWILIO_ACCOUNT_SID should start with "AC", but starts with "${accountSid.slice(0, 2)}".`);
   }
 
-  if (apiKeySid && apiKeySecret) return { accountSid, user: apiKeySid, pass: apiKeySecret };
-  if (authToken) return { accountSid, user: accountSid, pass: authToken };
+  // Twilio takes either an API key pair or the account's own auth token. Both
+  // are tried in that order, because an API key can be revoked in the console
+  // without anything in this file changing — and when that happens the error
+  // says "actor doesn't have any assertions", which explains nothing.
+  const candidates = [];
+  const apiKeySid = env.TWILIO_API_KEY_SID || env.TWILIO_SALES_CALLIN_API;
+  const apiKeySecret = env.TWILIO_API_KEY_SECRET || env.TWILIO_CLIENT_SECRET;
 
-  throw new Error(
-    'No usable Twilio credentials. Set either TWILIO_AUTH_TOKEN, or an API key pair\n' +
-      '(TWILIO_API_KEY_SID and TWILIO_API_KEY_SECRET) in .env.local.'
-  );
+  if (apiKeySid && apiKeySecret) {
+    candidates.push({ label: 'API key', user: apiKeySid, pass: apiKeySecret });
+  }
+  if (env.TWILIO_AUTH_TOKEN) {
+    candidates.push({ label: 'auth token', user: accountSid, pass: env.TWILIO_AUTH_TOKEN });
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(
+      'No usable Twilio credentials. Set either TWILIO_AUTH_TOKEN, or an API key pair\n' +
+        '(TWILIO_API_KEY_SID and TWILIO_API_KEY_SECRET) in .env.local.'
+    );
+  }
+
+  return { accountSid, candidates };
 }
 
 function escapeXml(text) {
@@ -73,48 +86,59 @@ function escapeXml(text) {
 }
 
 async function placeTestCall(to) {
-  const { accountSid, user, pass } = resolveCredentials(readEnvFile(ENV_FILE));
+  const { accountSid, candidates } = resolveCredentials(readEnvFile(ENV_FILE));
 
   // Inline TwiML, so this needs no public URL for Twilio to fetch.
   const twiml = `<Response><Say voice="alice">${escapeXml(MESSAGE)}</Say></Response>`;
-
   const body = new URLSearchParams({ To: to, From: FROM_NUMBER, Twiml: twiml });
-  const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;
 
-  let response;
-  try {
-    response = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`,
-      {
+  let lastError = null;
+
+  for (const credential of candidates) {
+    const auth = Buffer.from(`${credential.user}:${credential.pass}`).toString('base64');
+
+    let response;
+    try {
+      response = await fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Basic ${auth}`,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body,
-      }
-    );
-  } catch (cause) {
-    throw new Error(`Could not reach Twilio: ${cause.message}`);
-  }
+      });
+    } catch (cause) {
+      throw new Error(`Could not reach Twilio: ${cause.message}`);
+    }
 
-  const payload = await response.json().catch(() => ({}));
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) return { ...payload, usedCredential: credential.label };
 
-  if (!response.ok) {
+    // Only a rejected credential is worth retrying with another one. A refused
+    // call would be refused identically however we authenticate, and retrying
+    // it risks placing the same call twice.
+    if (AUTH_ERROR_CODES.has(payload.code) && credential !== candidates[candidates.length - 1]) {
+      lastError = `${credential.label} rejected (code ${payload.code})`;
+      continue;
+    }
+
     // Twilio's own error codes say far more than the HTTP status does.
     const detail = payload.message || `HTTP ${response.status}`;
     const hint =
       payload.code === 21219 || payload.code === 21210
-        ? '\nOn a trial account you can only call numbers you have verified in the console.'
-        : payload.code === 20003
-          ? '\nThe credentials were rejected. Check the API key pair and the account SID.'
+        ? '\nThis is a trial account, so you can only call numbers verified in the Twilio console.'
+        : AUTH_ERROR_CODES.has(payload.code)
+          ? '\nEvery credential in .env.local was rejected. Check them in the Twilio console.'
           : payload.code === 21212 || payload.code === 21606
-            ? `\n${FROM_NUMBER} is not a number this account can call from.`
+            ? `\n${FROM_NUMBER} is not a number this account can call from. Buy a number in the` +
+              '\nTwilio console, or set TWILIO_FROM_NUMBER to one you already own.'
             : '';
-    throw new Error(`Twilio refused the call (code ${payload.code ?? '?'}): ${detail}${hint}`);
+    const preamble = lastError ? `${lastError}, then ` : '';
+    throw new Error(`${preamble}Twilio refused the call (code ${payload.code ?? '?'}): ${detail}${hint}`);
   }
 
-  return payload;
+  throw new Error(lastError ?? 'No Twilio credential was accepted.');
 }
 
 async function main() {
@@ -130,7 +154,7 @@ async function main() {
   }
 
   const call = await placeTestCall(to);
-  console.log(`Calling ${to} from ${FROM_NUMBER}`);
+  console.log(`Calling ${to} from ${FROM_NUMBER} (authenticated with the ${call.usedCredential})`);
   console.log(`Call SID: ${call.sid}`);
   console.log(`Status:   ${call.status}`);
 }
