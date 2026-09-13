@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { ChatPanel } from '@/components/chat-panel';
 import { PrimaryButton } from '@/components/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
@@ -25,11 +26,11 @@ import {
 } from '@/lib/sales/runs';
 import { RUN_STATUS_LABELS, type Temperature } from '@/types/database';
 
-// The Sales department is a dashboard and a calling panel, and nothing else.
-// There is no form here and no job picker: work arrives by telling Synq what to
-// do, in the sidebar chat. This screen is where the answer shows up.
+// The Sales department is a dashboard on the left and a calling rail on the
+// right, and nothing else. There is no form and no job picker: you say what you
+// want in the scan box, the call sheet fills in, and one button sends it out.
 
-const RAIL_WIDTH = 360;
+const RAIL_WIDTH = 400;
 
 /** Hot carries the accent because it is the only number worth acting on today. */
 const TEMPERATURE_COLORS: Record<Temperature, string> = {
@@ -432,10 +433,31 @@ export default function SalesScreen() {
     </View>
   );
 
+  // Typing here is how work starts. The agent can search and build a list; it
+  // has no tool that dials, so the call button below stays the only way out.
+  const scanner = (
+    <View style={styles.stack}>
+      <ThemedText type="smallBold">Scan for businesses</ThemedText>
+      <ChatPanel
+        kind="sales_ai"
+        placeholder="Find 20 cafes near Banjara Hills…"
+        emptyHint="Say what you sell and where, and I will build the call sheet."
+        suggestions={[
+          'Find 20 salons in Hyderabad',
+          'Find dental clinics near me',
+          'How did the last run go?',
+        ]}
+        height={wide ? 340 : 300}
+        onReply={refresh}
+      />
+    </View>
+  );
+
   if (!wide) {
     return (
       <ScrollView contentContainerStyle={styles.narrow}>
         {dashboardColumn}
+        {scanner}
         <CallPanel current={current} onChanged={refresh} />
       </ScrollView>
     );
@@ -448,6 +470,7 @@ export default function SalesScreen() {
         contentContainerStyle={styles.rail}
         style={[styles.railOuter, { borderLeftColor: theme.border }]}
       >
+        {scanner}
         <CallPanel current={current} onChanged={refresh} />
       </ScrollView>
     </View>

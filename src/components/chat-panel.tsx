@@ -13,7 +13,7 @@ type Turn = { role: 'user' | 'model'; content: string };
 const PAGE_LABELS: Record<string, string> = {
   '/': 'Dashboard',
   '/history': 'Activity',
-  '/sales': 'Sales AI',
+  '/sales': 'Sales',
   '/import-leads': 'CRM',
   '/cold-call': 'Cold Call',
   '/follow-ups': 'Follow-ups',
@@ -31,6 +31,7 @@ export function ChatPanel({
   seedMessage,
   saveLabel,
   onSaveReply,
+  onReply,
   height = 380,
   resume = true,
 }: {
@@ -43,6 +44,11 @@ export function ChatPanel({
   seedMessage?: string;
   saveLabel?: string;
   onSaveReply?: (reply: string) => Promise<void> | void;
+  /**
+   * Fired after every model reply. A tool the agent ran may have changed rows
+   * the surrounding screen is showing, and the screen has no other way to know.
+   */
+  onReply?: () => void;
   height?: number;
   /**
    * Reopen the most recent thread of this kind on mount. Off for surfaces that
@@ -100,13 +106,14 @@ export function ChatPanel({
         setConversationId(result.conversationId);
         setTurns((current) => [...current, { role: 'model', content: result.reply }]);
         setNavigations(result.navigations);
+        onReply?.();
       } catch (e) {
         setError(e instanceof ChatError ? e.message : 'Something went wrong. Please try again.');
       } finally {
         setSending(false);
       }
     },
-    [conversationId, context, kind, sending]
+    [conversationId, context, kind, onReply, sending]
   );
 
   useEffect(() => {
