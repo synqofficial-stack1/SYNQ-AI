@@ -16,8 +16,10 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-/** Fast costs roughly a third of standard per second. Overridable if wanted. */
-const DEFAULT_MODEL = 'veo-3.1-fast-generate-preview';
+// Lite is the cheapest Veo there is, under half the price of Fast at the same
+// speed, and 720p vertical is all a reel needs. There is no free option to fall
+// back to: every Veo model bills from the first second.
+const DEFAULT_MODEL = 'veo-3.1-lite-generate-preview';
 const BUCKET = 'generated-videos';
 const MAX_PROMPT_CHARS = 2000;
 
@@ -115,6 +117,34 @@ Deno.serve(async (req) => {
   }
 
   // -------------------------------------------------------------------------
+  // models — read-only, costs nothing, answers "can this key make videos at all"
+  // -------------------------------------------------------------------------
+  if (body.action === 'models') {
+    try {
+      const list = await fetch(`${BASE}/models?pageSize=200`, {
+        headers: { 'x-goog-api-key': apiKey },
+      });
+      if (!list.ok) {
+        return json({ error: await describeGoogleError(list, apiKey, model) }, 502);
+      }
+      const names = ((await list.json())?.models ?? []).map((m: { name?: string }) =>
+        String(m.name ?? '').replace(/^models\//, '')
+      );
+      const veo = names.filter((n: string) => n.toLowerCase().includes('veo'));
+      return json({
+        configured: model,
+        veo_models: veo,
+        usable: veo.includes(model),
+        note: veo.length
+          ? 'Billing is on for this key, since Veo models are only listed on the paid tier.'
+          : 'This key sees no Veo models, which means it is on the free tier. Veo has no free tier.',
+      });
+    } catch {
+      return json({ error: 'Could not reach Google.' }, 502);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // start
   // -------------------------------------------------------------------------
   if (body.action === 'start') {
@@ -157,7 +187,9 @@ Deno.serve(async (req) => {
           instances: [{ prompt }],
           parameters: {
             aspectRatio: aspect,
-            durationSeconds: String(duration),
+            // A number, not a string. The published REST example shows "4",
+            // and the API rejects that with "needs to be a number".
+            durationSeconds: duration,
             resolution,
             personGeneration: 'allow_adult',
           },
@@ -299,5 +331,5 @@ Deno.serve(async (req) => {
     return json({ video: ready ?? video });
   }
 
-  return json({ error: 'Unknown action. Use "start" or "check".' }, 400);
+  return json({ error: 'Unknown action. Use "models", "start" or "check".' }, 400);
 });
