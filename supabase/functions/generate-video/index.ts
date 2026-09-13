@@ -1,17 +1,18 @@
 // Turns an agreed marketing concept into a video with Veo.
 //
-// Two actions on one function, because they are two halves of one job:
+// Three actions on one function:
 //
+//   models — read-only. Says which Veo models this key may use, and therefore
+//            whether billing is on. Costs nothing, so it is safe to call first.
 //   start  — records what was asked for, then hands the prompt to Veo and keeps
 //            the operation handle.
 //   check  — polls that handle. When it finishes, the file is pulled down and
 //            put in storage, because the download URL needs the API key and the
 //            key must never reach the app.
 //
-// Every call to Veo is billed from the first second — there is no free tier —
-// so the row is written before the request goes out. If this function dies
-// mid-flight there is still a record of what was paid for, and `start` refuses
-// to run twice on a video that already has an operation.
+// Every call to Veo is billed from the first second — there is no free tier on
+// any model — so the row is written before the request goes out. If this
+// function dies mid-flight there is still a record of what was paid for.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -191,7 +192,10 @@ Deno.serve(async (req) => {
             // and the API rejects that with "needs to be a number".
             durationSeconds: duration,
             resolution,
-            personGeneration: 'allow_adult',
+            // personGeneration is deliberately omitted. The docs list
+            // allow_adult, but text-to-video rejects it with "not supported",
+            // and which values are accepted varies by model and region. Leaving
+            // it out lets Google apply whatever its own default is.
           },
         }),
       });
