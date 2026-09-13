@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { TextField } from '@/components/text-field';
+import { VideoActions } from '@/components/video-actions';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -30,6 +31,7 @@ export function ChatPanel({
   saveLabel,
   onSaveReply,
   onReply,
+  enableVideo = false,
   height = 380,
   resume = true,
 }: {
@@ -47,6 +49,8 @@ export function ChatPanel({
    * the surrounding screen is showing, and the screen has no other way to know.
    */
   onReply?: () => void;
+  /** Shows the Veo generation action, which only Marketing wants today. */
+  enableVideo?: boolean;
   height?: number;
   /**
    * Reopen the most recent thread of this kind on mount. Off for surfaces that
@@ -234,6 +238,10 @@ export function ChatPanel({
               {saved ? 'Saved ✓' : (saveLabel ?? 'Save this')}
             </ThemedText>
           </Pressable>
+        ) : null}
+
+        {enableVideo ? (
+          <VideoActions conversationId={conversationId} suggestedPrompt={lastReply} />
         ) : null}
       </ScrollView>
 

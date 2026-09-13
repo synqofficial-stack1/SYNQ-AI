@@ -36,8 +36,9 @@ export default function MarketingScreen() {
         suggestions={[
           'Help me position a website service for local salons',
           'Write three Instagram captions for a launch',
-          'What should I post in my first week?',
+          'Sketch a 4 second reel idea for Instagram',
         ]}
+        enableVideo
         // Sizes the message list, not the panel: the header, suggestion row and
         // input box add roughly 170px on top, and the page itself does not
         // scroll, so anything taller pushes the input off the bottom of the
