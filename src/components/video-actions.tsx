@@ -2,6 +2,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { ModalSheet } from '@/components/modal-sheet';
+import { PostVideo } from '@/components/post-video';
 import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -119,6 +120,7 @@ function VideoCard({
               Make another take
             </ThemedText>
           </Pressable>
+          <PostVideo video={video} />
         </>
       )}
     </View>
