@@ -2,8 +2,9 @@
 //
 // Three actions on one function:
 //
-//   models — read-only. Says which Veo models this key may use, and therefore
-//            whether billing is on. Costs nothing, so it is safe to call first.
+//   models — read-only. Lists the Veo models this key can see. Being listed does
+//            NOT prove billing is on: free-tier projects see them too, and get a
+//            429 with a quota of zero the moment they try one.
 //   start  — records what was asked for, then hands the prompt to Veo and keeps
 //            the operation handle.
 //   check  — polls that handle. When it finishes, the file is pulled down and
@@ -47,7 +48,10 @@ async function describeGoogleError(response: Response, key: string, model: strin
   }
 
   if (response.status === 429) {
-    return 'Google refused: the quota for video generation is used up. Veo has no free tier, so this needs billing enabled on the Google Cloud project behind the key.';
+    // Google's own wording is kept: it says whether the limit is zero (no
+    // billing) or merely hit (slow down), and those need different fixes.
+    const detail = reason ? ` Google said: ${reason.slice(0, 300)}` : '';
+    return `Google refused: this project has no video generation quota. Veo has no free tier, so the Google Cloud project behind the key needs a billing account linked.${detail}`;
   }
   if (response.status === 403 || /billing|permission|not enabled|quota/i.test(reason)) {
     return `Google refused the request: ${reason || 'permission denied'}. Veo is a paid model — check that billing is on for this key and that the Generative Language API is enabled.`;
@@ -68,8 +72,8 @@ async function describeGoogleError(response: Response, key: string, model: strin
           .filter((name: string) => name.includes('veo'))
           .slice(0, 8);
         available = usable.length
-          ? ` Video models this key can use: ${usable.join(', ')}.`
-          : ' This key has access to no Veo models at all, which usually means billing is not enabled.';
+          ? ` Video models this key can see: ${usable.join(', ')}.`
+          : ' This key cannot see any Veo models at all.';
       }
     } catch {
       // Best effort; the 404 is still the headline.
@@ -118,7 +122,8 @@ Deno.serve(async (req) => {
   }
 
   // -------------------------------------------------------------------------
-  // models — read-only, costs nothing, answers "can this key make videos at all"
+  // models — read-only and free. Answers "can this key see Veo", which is not
+  // the same question as "is this project paying for Veo".
   // -------------------------------------------------------------------------
   if (body.action === 'models') {
     try {
@@ -135,10 +140,8 @@ Deno.serve(async (req) => {
       return json({
         configured: model,
         veo_models: veo,
-        usable: veo.includes(model),
-        note: veo.length
-          ? 'Billing is on for this key, since Veo models are only listed on the paid tier.'
-          : 'This key sees no Veo models, which means it is on the free tier. Veo has no free tier.',
+        listed: veo.includes(model),
+        note: 'Being listed does not mean the project can generate. Veo only works once a billing account is linked to the Google Cloud project behind this key.',
       });
     } catch {
       return json({ error: 'Could not reach Google.' }, 502);
