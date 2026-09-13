@@ -9,9 +9,17 @@ import { useTheme } from '@/hooks/use-theme';
 // DOM, so a plain <input type="file"> works with nothing installed. On a phone
 // this renders nothing and the paste box remains the way in.
 //
-// CSV only. Excel support would mean SheetJS, whose npm build carries two
-// unfixed high-severity advisories (prototype pollution, ReDoS) and would be
-// parsing exactly this: files from outside. Exporting to CSV is one click.
+// Spreadsheets are converted to CSV here and handed on as text, so the existing
+// column-alias matching and row limits in `parseLeadsCsv` apply to every format
+// without being reimplemented per file type.
+//
+// SheetJS comes from the vendor's own CDN, not npm. The registry build is
+// abandoned at 0.18.5 with two unfixed high-severity advisories (prototype
+// pollution, ReDoS); the CDN ships patched releases. That matters here more than
+// most places because this code parses files from outside.
+
+const SPREADSHEET_EXTENSIONS = /\.(xlsx|xlsm|xlsb|xls|ods|fods)$/i;
+const TEXT_EXTENSIONS = /\.(csv|tsv|txt)$/i;
 
 export function FileDrop({
   onText,
@@ -24,23 +32,65 @@ export function FileDrop({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   if (Platform.OS !== 'web') return null;
 
-  const read = (file: File | undefined) => {
+  const readSpreadsheet = async (file: File) => {
+    // Loaded on demand: SheetJS is large, and most sessions never drop a file.
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+
+    // Workbooks often lead with a cover or notes tab, so take the first sheet
+    // that actually has rows rather than blindly the first one.
+    for (const name of workbook.SheetNames) {
+      const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name]);
+      if (csv.trim()) {
+        return { csv, sheet: name, sheetCount: workbook.SheetNames.length };
+      }
+    }
+    return null;
+  };
+
+  const read = async (file: File | undefined) => {
     if (!file) return;
-    if (!/\.csv$/i.test(file.name)) {
+    setProblem(null);
+
+    const isSpreadsheet = SPREADSHEET_EXTENSIONS.test(file.name);
+    const isText = TEXT_EXTENSIONS.test(file.name);
+
+    if (!isSpreadsheet && !isText) {
       setProblem(
-        `"${file.name}" isn't a CSV. In Excel or Sheets choose File → Save as / Export → CSV, then drop that file here.`
+        `"${file.name}" isn't a spreadsheet. Excel (.xlsx, .xls), OpenDocument (.ods) and CSV all work — Google Sheets exports to any of them via File → Download.`
       );
       return;
     }
-    setProblem(null);
-    const reader = new FileReader();
-    reader.onload = () => onText(String(reader.result ?? ''), file.name);
-    reader.onerror = () => setProblem('That file could not be read.');
-    reader.readAsText(file);
+
+    setBusy(true);
+    try {
+      if (isSpreadsheet) {
+        const result = await readSpreadsheet(file);
+        if (!result) {
+          setProblem(`"${file.name}" has no rows in any of its sheets.`);
+          return;
+        }
+        onText(result.csv, file.name);
+        if (result.sheetCount > 1) {
+          setProblem(
+            `Read the "${result.sheet}" sheet. ${file.name} has ${result.sheetCount} sheets — if the contacts are on a different one, move it to the front and drop the file again.`
+          );
+        }
+      } else {
+        onText(await file.text(), file.name);
+      }
+    } catch {
+      setProblem(`"${file.name}" could not be read. If it's password-protected, remove that first.`);
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const inert = disabled || busy;
 
   return createElement(
     'div',
@@ -55,27 +105,27 @@ export function FileDrop({
         borderRadius: Radius.card,
         border: `1px dashed ${dragging ? AccentColors.primary : theme.borderStrong}`,
         backgroundColor: dragging ? theme.surfaceRaised : 'transparent',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
+        cursor: inert ? 'progress' : 'pointer',
+        opacity: inert ? 0.6 : 1,
         transition: 'background-color 140ms, border-color 140ms',
         textAlign: 'center',
       },
-      onClick: () => !disabled && inputRef.current?.click(),
+      onClick: () => !inert && inputRef.current?.click(),
       onDragOver: (event: React.DragEvent) => {
         event.preventDefault();
-        if (!disabled) setDragging(true);
+        if (!inert) setDragging(true);
       },
       onDragLeave: () => setDragging(false),
       onDrop: (event: React.DragEvent) => {
         event.preventDefault();
         setDragging(false);
-        if (!disabled) read(event.dataTransfer?.files?.[0]);
+        if (!inert) read(event.dataTransfer?.files?.[0]);
       },
     },
     createElement('input', {
       ref: inputRef,
       type: 'file',
-      accept: '.csv,text/csv',
+      accept: '.csv,.tsv,.txt,.xlsx,.xlsm,.xlsb,.xls,.ods,.fods',
       style: { display: 'none' },
       onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
         read(event.target.files?.[0]);
@@ -86,17 +136,17 @@ export function FileDrop({
     createElement(
       'span',
       { key: 'title', style: { color: theme.text, fontSize: 14, fontWeight: 500 } },
-      dragging ? 'Drop to import' : 'Drop a CRM file here, or click to choose'
+      busy ? 'Reading…' : dragging ? 'Drop to import' : 'Drop a CRM file here, or click to choose'
     ),
     createElement(
       'span',
       { key: 'sub', style: { color: theme.textSecondary, fontSize: 12 } },
-      'CSV only — export from Excel or Sheets with File → Save as → CSV'
+      'Excel, Google Sheets, OpenDocument or CSV'
     ),
     problem
       ? createElement(
           'span',
-          { key: 'problem', style: { color: AccentColors.error, fontSize: 12, marginTop: 4 } },
+          { key: 'problem', style: { color: AccentColors.warning, fontSize: 12, marginTop: 4 } },
           problem
         )
       : null

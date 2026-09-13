@@ -173,3 +173,109 @@ export type ContentItem = {
   created_at: string;
   updated_at: string;
 };
+
+// From supabase/migrations/20260913010000_sales_engine.sql.
+export const FACT_CATEGORIES = ['about', 'service', 'pricing', 'policy', 'proof'] as const;
+export type FactCategory = (typeof FACT_CATEGORIES)[number];
+
+export const FACT_CATEGORY_LABELS: Record<FactCategory, string> = {
+  about: 'About the business',
+  service: 'What you sell',
+  pricing: 'Pricing',
+  policy: 'Policies',
+  proof: 'Proof and results',
+};
+
+export type CompanyFact = {
+  id: string;
+  user_id: string;
+  category: FactCategory;
+  label: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export const RUN_STATUSES = [
+  'planning',
+  'discovering',
+  'screening',
+  'awaiting_approval',
+  'calling',
+  'completed',
+  'blocked',
+  'failed',
+] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
+  planning: 'Planning',
+  discovering: 'Searching Google Maps',
+  screening: 'Checking the list',
+  awaiting_approval: 'Waiting for your approval',
+  calling: 'Calling',
+  completed: 'Done',
+  blocked: 'Needs attention',
+  failed: 'Failed',
+};
+
+export type SalesRun = {
+  id: string;
+  user_id: string;
+  request: string;
+  objective: string | null;
+  pitch: string | null;
+  location: string | null;
+  industry: string | null;
+  target_count: number;
+  source: string;
+  status: RunStatus;
+  blocked_reason: string | null;
+  report: string | null;
+  /** Set when the user confirmed the list. Null means nothing may be dialled. */
+  attested_at: string | null;
+  calls_placed: number;
+  provider: string | null;
+  provider_batch_id: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type ProspectEligibility = 'pending' | 'eligible' | 'excluded';
+export type ProspectOutreach = 'pending' | 'dialing' | 'called' | 'skipped' | 'failed';
+
+/** How the call went. Null until a call has actually connected and been read. */
+export type Temperature = 'hot' | 'warm' | 'cold';
+
+export const TEMPERATURE_LABELS: Record<Temperature, string> = {
+  hot: 'Hot',
+  warm: 'Warm',
+  cold: 'Cold',
+};
+
+export type Prospect = {
+  id: string;
+  user_id: string;
+  run_id: string;
+  lead_id: string | null;
+  name: string;
+  phone: string | null;
+  website: string | null;
+  address: string | null;
+  category: string | null;
+  source: string;
+  source_ref: string | null;
+  eligibility: ProspectEligibility;
+  eligibility_reason: string | null;
+  outreach_status: ProspectOutreach;
+  /** Written by the post-call webhook from the real transcript, never guessed. */
+  call_notes: string | null;
+  temperature: Temperature | null;
+  transcript_summary: string | null;
+  conversation_id: string | null;
+  provider_call_id: string | null;
+  called_at: string | null;
+  call_error: string | null;
+  created_at: string;
+};

@@ -18,7 +18,7 @@ const TITLES: Record<string, string> = {
   '/': 'Dashboard',
   '/history': 'Activity',
   '/import-leads': 'Sales · CRM',
-  '/sales': 'Sales · Sales AI',
+  '/sales': 'Sales',
   '/cold-call': 'Sales · Cold Call',
   '/follow-ups': 'Sales · Follow-ups',
   '/marketing': 'Marketing · Overview',
@@ -30,7 +30,7 @@ const TITLES: Record<string, string> = {
 const DESTINATIONS = [
   { label: 'Dashboard', path: '/' },
   { label: 'Activity', path: '/history' },
-  { label: 'Sales AI', path: '/sales' },
+  { label: 'Sales', path: '/sales' },
   { label: 'CRM', path: '/import-leads' },
   { label: 'Cold Call', path: '/cold-call' },
   { label: 'Follow-ups', path: '/follow-ups' },
@@ -109,15 +109,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             supabase.auth.signOut();
           }}
         />
-        {/* Taps anywhere in the content close the account dropdown, which is the
-            behaviour people expect from a menu without needing a full overlay. */}
-        <Pressable
-          style={styles.content}
-          onPress={() => setUserMenuOpen(false)}
-          accessible={false}
-        >
+        <View style={styles.content}>
           {children}
-        </Pressable>
+          {/* Only mounted while the menu is open. Wrapping the page itself in a
+              Pressable put every button on the page inside a <button>, which is
+              invalid HTML and confuses screen readers. */}
+          {userMenuOpen ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close account menu"
+              style={StyleSheet.absoluteFill}
+              onPress={() => setUserMenuOpen(false)}
+            />
+          ) : null}
+        </View>
       </View>
 
       <Modal visible={drawerOpen && !isWide} transparent animationType="fade">
@@ -127,9 +132,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           style={styles.drawerBackdrop}
           onPress={() => setDrawerOpen(false)}
         >
-          <Pressable onPress={() => {}} style={styles.drawerPanel}>
+          {/* Claims the touch so taps inside the drawer don't reach the backdrop.
+              A View, not a Pressable — nesting one button inside another is
+              invalid markup. */}
+          <View style={styles.drawerPanel} onStartShouldSetResponder={() => true}>
             {sidebar}
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 

@@ -32,6 +32,34 @@ const DEPARTMENT_FOR: Record<Kind, string> = {
   campaign: 'marketing',
 };
 
+/**
+ * Which tools each agent may call. Absent means no tools at all.
+ *
+ * The CRM coach gets reads over the caller's own contacts and nothing else — it
+ * advises on who to call, so it has no business creating campaigns or content.
+ */
+const TOOLS_FOR: Partial<Record<Kind, string[]>> = {
+  assistant: [
+    'get_workspace_summary',
+    'list_leads',
+    'list_campaigns',
+    'list_follow_ups',
+    'create_campaign',
+    'create_content',
+    'start_sales_run',
+    'check_run_status',
+    'navigate',
+  ],
+  crm: ['get_workspace_summary', 'list_leads', 'list_follow_ups'],
+  sales_ai: ['get_workspace_summary', 'list_leads', 'start_sales_run', 'check_run_status'],
+};
+
+// Worth stating plainly, because it is the line the whole calling design rests
+// on: there is no tool here that places a phone call. `start_sales_run` builds a
+// list and stops. Dialling happens in `place-calls`, which refuses any run
+// without an `attested_at`, and only the approve button on the Sales screen
+// writes that column. No sequence of model outputs can reach a phone.
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -122,6 +150,36 @@ const TOOL_DECLARATIONS = [
       },
       required: ['title'],
     },
+  },
+  {
+    name: 'start_sales_run',
+    description:
+      'Find real local businesses on Google Maps and build a call sheet from them. Use this when the user asks to find businesses to call, or to run outreach in an area. It searches, screens the numbers, and stops with the list waiting for the user to approve — it does NOT place any calls. Ask for the location first if you do not have one; never guess it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        industry: {
+          type: 'string',
+          description: 'The kind of business, e.g. "salons", "dental clinics", "restaurants".',
+        },
+        location: {
+          type: 'string',
+          description: 'City or area to search. Required — ask the user if they have not said.',
+        },
+        count: { type: 'number', description: 'How many businesses to find, at most 20.' },
+        pitch: {
+          type: 'string',
+          description: 'One or two sentences on what is being sold, for the calling agent to use.',
+        },
+      },
+      required: ['location'],
+    },
+  },
+  {
+    name: 'check_run_status',
+    description:
+      'How the most recent calling run is going: how many were found, how many called, and the hot/warm/cold split.',
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'navigate',
@@ -267,6 +325,104 @@ async function runTool(
       return { result: { created: data, status: 'draft', note: 'Saved as a draft for review.' } };
     }
 
+    case 'start_sales_run': {
+      const location = String(args.location ?? '').trim();
+      if (!location) {
+        return {
+          result: {
+            error: 'A location is needed before I can search. Ask the user which city or area.',
+          },
+        };
+      }
+
+      const industry = args.industry ? String(args.industry).trim() : null;
+      const count = Math.min(Math.max(Number(args.count ?? 20) || 20, 1), 20);
+
+      const { data: run, error: runError } = await supabase
+        .from('sales_runs')
+        .insert({
+          user_id: userId,
+          request: `Find ${count} ${industry ?? 'businesses'} in ${location}`,
+          industry,
+          location,
+          pitch: args.pitch ? String(args.pitch) : null,
+          target_count: count,
+          status: 'planning',
+        })
+        .select('id')
+        .single();
+
+      if (runError) return { result: { error: runError.message } };
+
+      // Discovery runs in its own function because that is where the Places key
+      // lives. A failure there is reported back as text, not thrown — the model
+      // needs to tell the user what went wrong.
+      const { data: outcome, error: discoverError } = await supabase.functions.invoke(
+        'discover-prospects',
+        { body: { run_id: run.id, industry, location, limit: count } }
+      );
+
+      if (discoverError) {
+        const response = (discoverError as { context?: Response }).context;
+        let reason = 'Google Maps search did not run.';
+        if (response && typeof response.json === 'function') {
+          try {
+            const parsed = await response.json();
+            if (parsed?.error) reason = parsed.error;
+          } catch {
+            // Not JSON. Keep the generic reason.
+          }
+        }
+        return { result: { error: reason, run_id: run.id } };
+      }
+
+      return {
+        result: {
+          run_id: run.id,
+          found: outcome?.found ?? 0,
+          eligible: outcome?.eligible ?? 0,
+          excluded: outcome?.excluded ?? 0,
+          searched: outcome?.query ?? null,
+          status: 'awaiting_approval',
+          note: 'The list is built and nothing has been dialled. Tell the user to open Sales and press the call button to approve it. You cannot start the calls yourself.',
+        },
+      };
+    }
+
+    case 'check_run_status': {
+      const { data: run } = await supabase
+        .from('sales_runs')
+        .select('id, request, status, blocked_reason, calls_placed, location, industry')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!run) return { result: { note: 'No calling run has been started yet.' } };
+
+      const { data: prospects } = await supabase
+        .from('prospects')
+        .select('outreach_status, temperature, eligibility')
+        .eq('run_id', run.id);
+
+      const rows = prospects ?? [];
+      const called = rows.filter((r) => r.outreach_status === 'called');
+
+      return {
+        result: {
+          request: run.request,
+          status: run.status,
+          blocked_reason: run.blocked_reason,
+          found: rows.length,
+          eligible: rows.filter((r) => r.eligibility === 'eligible').length,
+          called: called.length,
+          hot: called.filter((r) => r.temperature === 'hot').length,
+          warm: called.filter((r) => r.temperature === 'warm').length,
+          cold: called.filter((r) => r.temperature === 'cold').length,
+          no_answer: called.filter((r) => !r.temperature).length,
+        },
+      };
+    }
+
     case 'navigate': {
       const page = String(args.page ?? '').toLowerCase().trim();
       const path = PAGES[page];
@@ -304,7 +460,7 @@ async function callGemini(
   key: string,
   systemInstruction: string,
   contents: GeminiContent[],
-  useTools: boolean
+  tools: typeof TOOL_DECLARATIONS
 ): Promise<GeminiPart[]> {
   let response: Response;
   try {
@@ -317,7 +473,7 @@ async function callGemini(
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemInstruction }] },
           contents,
-          ...(useTools ? { tools: [{ functionDeclarations: TOOL_DECLARATIONS }] } : {}),
+          ...(tools.length ? { tools: [{ functionDeclarations: tools }] } : {}),
           generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS, temperature: 0.7 },
         }),
       }
@@ -498,14 +654,15 @@ Deno.serve(async (req) => {
     { role: 'user', parts: [{ text: message }] },
   ];
 
-  const useTools = kind === 'assistant';
+  const allowed = TOOLS_FOR[kind] ?? [];
+  const tools = TOOL_DECLARATIONS.filter((tool) => allowed.includes(tool.name));
   const navigations: string[] = [];
 
   let reply = '';
   try {
     let toolCalls = 0;
     for (;;) {
-      const parts = await callGemini(geminiKey, department.system_instructions, contents, useTools);
+      const parts = await callGemini(geminiKey, department.system_instructions, contents, tools);
       const calls = parts.filter((p) => p.functionCall);
 
       if (calls.length === 0 || toolCalls >= MAX_TOOL_CALLS) {
@@ -525,6 +682,18 @@ Deno.serve(async (req) => {
       for (const part of calls) {
         toolCalls++;
         const call = part.functionCall!;
+        // Filtering the declarations only tells the model what exists; this is
+        // what enforces it. A model that asks for a tool this agent doesn't have
+        // gets told no rather than having it run.
+        if (!allowed.includes(call.name)) {
+          responses.push({
+            functionResponse: {
+              name: call.name,
+              response: { error: 'That tool is not available in this conversation.' },
+            },
+          });
+          continue;
+        }
         const outcome = await runTool(supabase, user.id, call.name, call.args ?? {});
         if (outcome.navigateTo) navigations.push(outcome.navigateTo);
         responses.push({ functionResponse: { name: call.name, response: outcome.result } });

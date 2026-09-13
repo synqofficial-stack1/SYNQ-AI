@@ -34,15 +34,18 @@ export function ModalSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Close"
-        onPress={onClose}
-        style={[styles.backdrop, align === 'top' && styles.backdropTop]}
-      >
-        {/* Swallow the press so clicking inside the panel does not close it. */}
+      <View style={[styles.backdrop, align === 'top' && styles.backdropTop]}>
+        {/* The click-to-dismiss target is a sibling of the panel, not its
+            parent. Wrapping the panel in a Pressable would put every button
+            inside the modal inside a <button> on web, which is invalid markup
+            and breaks clicks on the controls it contains. */}
         <Pressable
-          onPress={() => {}}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
           style={[styles.panel, { backgroundColor: theme.surface, borderColor: theme.border }]}
         >
           <View style={styles.header}>
@@ -54,8 +57,8 @@ export function ModalSheet({
             ) : null}
           </View>
           {children}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

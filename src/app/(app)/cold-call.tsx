@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { ChatPanel } from '@/components/chat-panel';
 import { FileDrop } from '@/components/file-drop';
 import { PrimaryButton } from '@/components/primary-button';
 import { SalesTabs } from '@/components/sales-tabs';
@@ -440,6 +441,19 @@ export default function ColdCallScreen() {
           )}
         </>
       )}
+
+      <ThemedText type="sectionTitle">Ask about your list</ThemedText>
+      <ChatPanel
+        kind="crm"
+        placeholder="Who should I call first? What do I say?"
+        emptyHint="This reads the contacts you've imported — who's left to call, which companies are in the list, what happened on earlier calls. It has no internet, so it can't find businesses that aren't already in your CRM."
+        suggestions={[
+          'Who should I call first?',
+          'How many contacts have I not called yet?',
+          'Give me an opener for this list',
+        ]}
+        height={340}
+      />
     </ScrollView>
   );
 }
