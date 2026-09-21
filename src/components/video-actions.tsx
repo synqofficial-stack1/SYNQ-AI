@@ -2,7 +2,6 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { ModalSheet } from '@/components/modal-sheet';
-import { PostVideo } from '@/components/post-video';
 import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -10,6 +9,7 @@ import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   checkVideo,
+  estimateCost,
   listVideos,
   playbackUrl,
   startVideo,
@@ -19,11 +19,10 @@ import {
 
 // The video half of a marketing chat.
 //
-// Free for the person using the app: the workspace's server key pays Google, so
-// no price is shown here. It is still never one tap. Every take is billed to the
-// workspace from the first second, and a model that mishears the concept still
-// charges for it, so the button opens the prompt for editing and waits for a
-// second, deliberate press.
+// Generation is never one tap. Every run is billed from the first second with
+// no free tier, and a model that mishears the concept still charges for the
+// take — so the button opens the prompt for editing, states the cost, and waits
+// for a second, deliberate press.
 //
 // "Request changes" is not a separate feature: you keep talking to the chat,
 // and the next generation picks up the newer concept. Regenerate reuses a
@@ -120,7 +119,6 @@ function VideoCard({
               Make another take
             </ThemedText>
           </Pressable>
-          <PostVideo video={video} />
         </>
       )}
     </View>
@@ -256,7 +254,7 @@ export function VideoActions({
         visible={open}
         onClose={() => setOpen(false)}
         title="Generate video"
-        description="Check the concept before filming. You can change it and make another take any time."
+        description="Check the concept before filming. Each take is billed by the second and cannot be undone."
       >
         <TextField
           value={prompt}
@@ -329,6 +327,11 @@ export function VideoActions({
           </View>
         </View>
 
+        <ThemedText type="caption" themeColor="textSecondary">
+          {duration} seconds costs {estimateCost(duration)}. Veo has no free tier, so billing
+          must be on for your Google key.
+        </ThemedText>
+
         {error ? (
           <ThemedText type="caption" style={{ color: AccentColors.error }}>
             {error}
@@ -336,7 +339,7 @@ export function VideoActions({
         ) : null}
 
         <PrimaryButton
-          title={busy ? 'Sending…' : 'Film it'}
+          title={busy ? 'Sending…' : `Film it (${estimateCost(duration)})`}
           onPress={confirm}
           disabled={busy || prompt.trim().length === 0}
         />

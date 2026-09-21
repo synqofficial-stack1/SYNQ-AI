@@ -88,3 +88,10 @@ export async function playbackUrl(video: GeneratedVideo): Promise<string | null>
   if (error) return null;
   return data?.signedUrl ?? null;
 }
+
+/** Roughly what a generation costs, so the confirm step can say so. */
+export function estimateCost(durationSeconds: number): string {
+  // Veo 3.1 Fast is about $0.15 per second of output, audio included.
+  const dollars = durationSeconds * 0.15;
+  return `about $${dollars.toFixed(2)}`;
+}

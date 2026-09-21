@@ -10,6 +10,9 @@ import type { Prospect, SalesRun, Temperature } from '@/types/database';
 // The pause before `calling` is the whole safety design. Everything up to it is
 // reversible — a list on a screen. Everything after it rings a real phone in a
 // real shop, and cannot be taken back.
+//
+// Calling a single number is a run of one, created by the call-number function
+// with the user's confirmation as its approval.
 
 export type RunWithProspects = { run: SalesRun; prospects: Prospect[] };
 
@@ -104,6 +107,82 @@ export function startCalling(runId: string): Promise<CallingOutcome> {
     // The server enforces the 9am–9pm window; it needs to know where "local" is.
     tz_offset_minutes: -new Date().getTimezoneOffset(),
   });
+}
+
+/** Where a single call is, as reported by ElevenLabs. */
+export type CallState = 'ringing' | 'talking' | 'wrapping_up' | 'done' | 'failed';
+
+export type CallStatus = {
+  state: CallState;
+  note: string | null;
+  temperature: Temperature | null;
+  summary: string | null;
+  error: string | null;
+  transcript: { speaker: 'agent' | 'business'; text: string }[];
+};
+
+/**
+ * Has the sales agent call one number now. `confirmed` is the user ticking
+ * that they have permission; the server refuses without it and re-checks every
+ * other gate itself.
+ */
+export function callNumber(input: {
+  phone: string;
+  pitch: string;
+  confirmed: boolean;
+}): Promise<{ prospect_id: string; run_id: string }> {
+  return invoke('call-number', {
+    action: 'start',
+    phone: input.phone,
+    pitch: input.pitch,
+    confirmed: input.confirmed,
+    tz_offset_minutes: -new Date().getTimezoneOffset(),
+  });
+}
+
+/**
+ * How a call started with `callNumber` is going. ElevenLabs does not tell Synq
+ * when a call ends, so the screen asks, and the answer that finds it finished
+ * also writes the result onto the call sheet.
+ */
+export async function checkCall(prospectId: string): Promise<CallStatus> {
+  const status = await invoke<Partial<CallStatus>>('call-number', {
+    action: 'status',
+    prospect_id: prospectId,
+  });
+  return {
+    state: status.state ?? 'ringing',
+    note: status.note ?? null,
+    temperature: status.temperature ?? null,
+    summary: status.summary ?? null,
+    error: status.error ?? null,
+    transcript: status.transcript ?? [],
+  };
+}
+
+/** Every call that has been attempted, newest first, across all runs. */
+export async function loadRecentCalls(limit = 20): Promise<Prospect[]> {
+  const { data, error } = await supabase
+    .from('prospects')
+    .select('*')
+    .neq('outreach_status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Prospect[];
+}
+
+/** The pitch used last time, so the user is not retyping it for every call. */
+export async function loadLastPitch(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('sales_runs')
+    .select('pitch')
+    .not('pitch', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.pitch ?? null;
 }
 
 export async function listRuns(limit = 20): Promise<SalesRun[]> {
@@ -212,6 +291,8 @@ export type SheetRow = {
   eligibility: Prospect['eligibility'];
   eligibilityReason: string | null;
   note: string | null;
+  /** Why a call could not be placed, when it could not. */
+  callError: string | null;
   temperature: Temperature | null;
   calledAt: string | null;
 };
@@ -228,6 +309,7 @@ export function toSheetRows(prospects: Prospect[]): SheetRow[] {
     eligibility: p.eligibility,
     eligibilityReason: p.eligibility_reason,
     note: p.call_notes,
+    callError: p.call_error,
     temperature: p.temperature,
     calledAt: p.called_at,
   }));

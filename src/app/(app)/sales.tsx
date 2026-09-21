@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -8,29 +8,36 @@ import {
   View,
 } from 'react-native';
 
-import { ChatPanel } from '@/components/chat-panel';
 import { PrimaryButton } from '@/components/primary-button';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ATTESTATION_TERMS, callingWindowNote, withinCallingWindow } from '@/lib/sales/compliance';
+import { callingWindowNote, withinCallingWindow } from '@/lib/sales/compliance';
 import {
-  approveRun,
-  loadLatestRun,
+  callNumber,
+  checkCall,
+  loadLastPitch,
+  loadRecentCalls,
   loadSalesDashboard,
-  startCalling,
   toSheetRows,
-  type RunWithProspects,
+  type CallStatus,
   type SalesDashboard,
   type SheetRow,
 } from '@/lib/sales/runs';
-import { RUN_STATUS_LABELS, type Temperature } from '@/types/database';
+import type { Temperature } from '@/types/database';
 
-// The Sales department is a dashboard on the left and a calling rail on the
-// right, and nothing else. There is no form and no job picker: you say what you
-// want in the scan box, the call sheet fills in, and one button sends it out.
+// The Sales department, for now, is one job: type a number and Synq's sales
+// agent calls it and holds the conversation. The dashboard on the left shows
+// how the calls went; the rail on the right is where a call starts.
+//
+// Google Maps discovery and list calling still exist in lib/sales/runs.ts and
+// the place-calls function. They are off this screen while single-number
+// calling is the focus.
 
 const RAIL_WIDTH = 400;
+/** How often a live call is checked on. */
+const CALL_POLL_MS = 4000;
 
 /** Hot carries the accent because it is the only number worth acting on today. */
 const TEMPERATURE_COLORS: Record<Temperature, string> = {
@@ -38,6 +45,21 @@ const TEMPERATURE_COLORS: Record<Temperature, string> = {
   warm: '#8c8c8c',
   cold: '#4a4a4a',
 };
+
+const CALL_STATE_LABELS: Record<CallStatus['state'], string> = {
+  ringing: 'Ringing…',
+  talking: 'On the call…',
+  wrapping_up: 'Call ended. Writing the notes…',
+  done: 'Call finished',
+  failed: 'The call did not go through',
+};
+
+/** What the user agrees to before a call. Shown above the checkbox, verbatim. */
+const CALL_TERMS = [
+  'The agent says it is an AI at the start of the call.',
+  'If they ask not to be called again, Synq never calls that number again.',
+  'Calls only go out between 9am and 9pm.',
+];
 
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   const theme = useTheme();
@@ -134,26 +156,23 @@ function TemperatureChip({ value }: { value: Temperature | null }) {
   );
 }
 
-function SheetTable({ rows }: { rows: SheetRow[] }) {
+function CallSheet({ rows }: { rows: SheetRow[] }) {
   const theme = useTheme();
 
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <View style={styles.cardHead}>
-        <ThemedText type="smallBold">Call sheet</ThemedText>
+        <ThemedText type="smallBold">Recent calls</ThemedText>
         <ThemedText type="caption" themeColor="textSecondary">
-          {rows.length} {rows.length === 1 ? 'business' : 'businesses'}
+          {rows.length} {rows.length === 1 ? 'call' : 'calls'}
         </ThemedText>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View>
           <View style={[styles.row, styles.headRow, { borderBottomColor: theme.border }]}>
-            <ThemedText type="caption" themeColor="textSecondary" style={styles.colName}>
-              BUSINESS
-            </ThemedText>
             <ThemedText type="caption" themeColor="textSecondary" style={styles.colPhone}>
-              PHONE
+              NUMBER
             </ThemedText>
             <ThemedText type="caption" themeColor="textSecondary" style={styles.colTemp}>
               READ
@@ -165,39 +184,30 @@ function SheetTable({ rows }: { rows: SheetRow[] }) {
 
           {rows.map((row) => (
             <View key={row.id} style={[styles.row, { borderBottomColor: theme.border }]}>
-              <View style={styles.colName}>
+              <View style={styles.colPhone}>
                 <ThemedText type="small" numberOfLines={1}>
-                  {row.name}
+                  {row.phone ?? row.name}
                 </ThemedText>
-                {row.category ? (
+                {row.name !== row.phone ? (
                   <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
-                    {row.category}
+                    {row.name}
                   </ThemedText>
                 ) : null}
               </View>
-
-              <ThemedText type="small" themeColor="textSecondary" style={styles.colPhone}>
-                {row.phone ?? 'No number'}
-              </ThemedText>
 
               <View style={styles.colTemp}>
                 <TemperatureChip value={row.temperature} />
               </View>
 
               <View style={styles.colNote}>
-                {row.note ? (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {row.note}
-                  </ThemedText>
-                ) : (
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    {row.eligibility === 'excluded'
-                      ? (row.eligibilityReason ?? 'Excluded')
-                      : row.status === 'dialing'
-                        ? 'Calling now…'
-                        : 'Not called yet'}
-                  </ThemedText>
-                )}
+                <ThemedText
+                  type={row.note ? 'small' : 'caption'}
+                  themeColor="textSecondary"
+                >
+                  {row.status === 'dialing'
+                    ? 'Calling now…'
+                    : (row.note ?? row.callError ?? 'No notes.')}
+                </ThemedText>
               </View>
             </View>
           ))}
@@ -207,143 +217,222 @@ function SheetTable({ rows }: { rows: SheetRow[] }) {
   );
 }
 
-function CallPanel({
-  current,
+function ConfirmCheck({
+  checked,
+  onToggle,
+  label,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      onPress={onToggle}
+      style={styles.checkRow}
+    >
+      <View
+        style={[
+          styles.checkbox,
+          {
+            borderColor: checked ? AccentColors.primary : theme.borderStrong,
+            backgroundColor: checked ? AccentColors.primary : 'transparent',
+          },
+        ]}
+      >
+        {checked ? (
+          <ThemedText type="caption" style={{ color: '#0d0d0d' }}>
+            ✓
+          </ThemedText>
+        ) : null}
+      </View>
+      <ThemedText type="small" style={styles.checkLabel}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+function CallProgress({ call }: { call: CallStatus }) {
+  const theme = useTheme();
+  const finished = call.state === 'done' || call.state === 'failed';
+
+  return (
+    <View style={[styles.progress, { borderTopColor: theme.border }]}>
+      <View style={styles.progressHead}>
+        {finished ? null : <ActivityIndicator size="small" color={AccentColors.primary} />}
+        <ThemedText type="smallBold">{CALL_STATE_LABELS[call.state]}</ThemedText>
+        {call.state === 'done' ? <TemperatureChip value={call.temperature} /> : null}
+      </View>
+
+      {call.note ? <ThemedText type="small">{call.note}</ThemedText> : null}
+      {call.summary && call.summary !== call.note ? (
+        <ThemedText type="caption" themeColor="textSecondary">
+          {call.summary}
+        </ThemedText>
+      ) : null}
+
+      {call.transcript.length > 0 ? (
+        <View style={[styles.transcript, { backgroundColor: theme.surfaceRaised }]}>
+          {call.transcript.slice(-12).map((line, index) => (
+            <ThemedText key={index} type="caption" themeColor="textSecondary">
+              {line.speaker === 'agent' ? 'Synq: ' : 'Them: '}
+              {line.text}
+            </ThemedText>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function CallNumberCard({
+  lastPitch,
   onChanged,
 }: {
-  current: RunWithProspects | null;
+  lastPitch: string;
   onChanged: () => void;
 }) {
   const theme = useTheme();
+  const [phone, setPhone] = useState('');
+  const [pitch, setPitch] = useState(lastPitch);
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
+  const [prospectId, setProspectId] = useState<string | null>(null);
+  const [call, setCall] = useState<CallStatus | null>(null);
 
-  const run = current?.run ?? null;
-  const prospects = current?.prospects ?? [];
-  const eligible = prospects.filter((p) => p.eligibility === 'eligible');
-  const called = prospects.filter((p) => p.outreach_status === 'called').length;
+  // The last pitch loads after the first render. Fill it in, unless the user
+  // has already started typing their own.
+  const pitchTouched = useRef(false);
+  useEffect(() => {
+    if (!pitchTouched.current) setPitch(lastPitch);
+  }, [lastPitch]);
+
+  const number = phone.replace(/[\s()-]/g, '');
+  const validNumber = /^\+\d{8,15}$/.test(number);
   const inWindow = withinCallingWindow();
+  const live = prospectId !== null && call?.state !== 'done' && call?.state !== 'failed';
 
-  async function approveAndCall() {
-    if (!run) return;
+  // ElevenLabs does not tell Synq when the call moves on, so the card asks.
+  const checking = useRef(false);
+  useEffect(() => {
+    if (!prospectId || !live) return;
+
+    const tick = async () => {
+      if (checking.current) return;
+      checking.current = true;
+      try {
+        const next = await checkCall(prospectId);
+        setCall(next);
+        setError(null);
+        if (next.state === 'done' || next.state === 'failed') onChanged();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not check on the call.');
+      } finally {
+        checking.current = false;
+      }
+    };
+
+    const timer = setInterval(tick, CALL_POLL_MS);
+    tick();
+    return () => clearInterval(timer);
+  }, [prospectId, live, onChanged]);
+
+  async function start() {
     setBusy(true);
     setError(null);
+    setCall(null);
+    setProspectId(null);
     try {
-      await approveRun(run.id);
-      const outcome = await startCalling(run.id);
-      if (outcome.queued === 0) setError('Nothing was queued. Check the numbers on the list.');
-      onChanged();
+      const started = await callNumber({ phone: number, pitch: pitch.trim(), confirmed });
+      setCall({ state: 'ringing', note: null, temperature: null, summary: null, error: null, transcript: [] });
+      setProspectId(started.prospect_id);
+      setConfirmed(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not go through.');
     } finally {
       setBusy(false);
+      onChanged();
     }
   }
 
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <View style={styles.cardHead}>
-        <ThemedText type="smallBold">Cold call</ThemedText>
-        {run ? (
+      <View style={styles.header}>
+        <ThemedText type="smallBold">Call a number</ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">
+          Synq&apos;s sales agent calls, talks it through, and writes down how it went.
+        </ThemedText>
+      </View>
+
+      <View style={styles.field}>
+        <ThemedText type="caption" themeColor="textSecondary">
+          PHONE NUMBER
+        </ThemedText>
+        <TextField
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          placeholder="+919876543210"
+          editable={!live}
+        />
+        {phone.trim() && !validNumber ? (
           <ThemedText type="caption" themeColor="textSecondary">
-            {RUN_STATUS_LABELS[run.status]}
+            Start with + and the country code, like +91.
           </ThemedText>
         ) : null}
       </View>
 
-      {!run ? (
-        <View style={styles.stack}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Nothing running. Ask Synq in the chat to start something, like:
+      <View style={styles.field}>
+        <ThemedText type="caption" themeColor="textSecondary">
+          WHAT IT IS SELLING
+        </ThemedText>
+        <TextField
+          value={pitch}
+          onChangeText={(text) => {
+            pitchTouched.current = true;
+            setPitch(text);
+          }}
+          multiline
+          autoCapitalize="sentences"
+          autoCorrect
+          editable={!live}
+          placeholder="What you sell, who it is for, and the next step you want. E.g. We build websites for salons and want to book a 15-minute demo."
+          style={styles.pitchInput}
+        />
+      </View>
+
+      <View style={[styles.terms, { backgroundColor: theme.surfaceRaised }]}>
+        {CALL_TERMS.map((term) => (
+          <ThemedText key={term} type="caption" themeColor="textSecondary">
+            • {term}
           </ThemedText>
-          <View style={[styles.quote, { borderLeftColor: AccentColors.primary }]}>
-            <ThemedText type="small">
-              Find 20 salons in Hyderabad and call them about our website service.
-            </ThemedText>
-          </View>
-        </View>
-      ) : run.status === 'blocked' ? (
-        <View style={styles.stack}>
-          <ThemedText type="small">{run.blocked_reason ?? 'This run stopped.'}</ThemedText>
-        </View>
-      ) : run.status === 'awaiting_approval' ? (
-        <View style={styles.stack}>
-          <ThemedText type="small">
-            {eligible.length} {eligible.length === 1 ? 'business is' : 'businesses are'} ready to
-            call. Nothing has been dialled.
-          </ThemedText>
+        ))}
+      </View>
 
-          <View style={[styles.terms, { backgroundColor: theme.surfaceRaised }]}>
-            {ATTESTATION_TERMS.map((term) => (
-              <ThemedText key={term} type="caption" themeColor="textSecondary">
-                • {term}
-              </ThemedText>
-            ))}
-          </View>
+      <ConfirmCheck
+        checked={confirmed}
+        onToggle={() => setConfirmed((value) => !value)}
+        label="I have permission to call this number."
+      />
 
-          <Pressable
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: confirmed }}
-            onPress={() => setConfirmed((value) => !value)}
-            style={styles.checkRow}
-          >
-            <View
-              style={[
-                styles.checkbox,
-                {
-                  borderColor: confirmed ? AccentColors.primary : theme.borderStrong,
-                  backgroundColor: confirmed ? AccentColors.primary : 'transparent',
-                },
-              ]}
-            >
-              {confirmed ? (
-                <ThemedText type="caption" style={{ color: '#0d0d0d' }}>
-                  ✓
-                </ThemedText>
-              ) : null}
-            </View>
-            <ThemedText type="small" style={styles.checkLabel}>
-              I have a legitimate business reason to call these numbers.
-            </ThemedText>
-          </Pressable>
-
-          {!inWindow ? (
-            <ThemedText type="caption" themeColor="textSecondary">
-              {callingWindowNote()}
-            </ThemedText>
-          ) : null}
-
-          <PrimaryButton
-            title={busy ? 'Starting…' : `Call ${eligible.length}`}
-            onPress={approveAndCall}
-            disabled={!confirmed || busy || eligible.length === 0 || !inWindow}
-          />
-        </View>
-      ) : (
-        <View style={styles.stack}>
-          <ThemedText type="small">
-            {called} of {run.calls_placed || eligible.length} calls finished.
-          </ThemedText>
-          <View style={[styles.progressTrack, { backgroundColor: theme.surfaceRaised }]}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  backgroundColor: AccentColors.primary,
-                  width: `${Math.round((called / Math.max(run.calls_placed || eligible.length, 1)) * 100)}%`,
-                },
-              ]}
-            />
-          </View>
-          {run.status === 'calling' ? (
-            <ThemedText type="caption" themeColor="textSecondary">
-              Results appear here as each call ends.
-            </ThemedText>
-          ) : null}
-        </View>
+      {inWindow ? null : (
+        <ThemedText type="caption" themeColor="textSecondary">
+          {callingWindowNote()}
+        </ThemedText>
       )}
 
+      <PrimaryButton
+        title={busy ? 'Starting…' : live ? 'Call in progress' : 'Call now'}
+        onPress={start}
+        disabled={busy || live || !validNumber || !pitch.trim() || !confirmed || !inWindow}
+      />
+
+      {call ? <CallProgress call={call} /> : null}
       {error ? (
         <ThemedText type="small" style={{ color: AccentColors.error }}>
           {error}
@@ -359,16 +448,19 @@ export default function SalesScreen() {
   const wide = width >= WideBreakpoint;
 
   const [dashboard, setDashboard] = useState<SalesDashboard | null>(null);
-  const [current, setCurrent] = useState<RunWithProspects | null>(null);
+  const [rows, setRows] = useState<SheetRow[]>([]);
+  const [lastPitch, setLastPitch] = useState('');
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [summary, latest] = await Promise.all([
+    const [summary, recent, pitch] = await Promise.all([
       loadSalesDashboard().catch(() => null),
-      loadLatestRun().catch(() => null),
+      loadRecentCalls().catch(() => []),
+      loadLastPitch().catch(() => null),
     ]);
     setDashboard(summary);
-    setCurrent(latest);
+    setRows(toSheetRows(recent));
+    setLastPitch(pitch ?? '');
     setLoading(false);
   }, []);
 
@@ -376,22 +468,13 @@ export default function SalesScreen() {
     refresh();
   }, [refresh]);
 
-  // While calls are with the provider the results arrive by webhook, so the
-  // screen has to ask. It only polls while something is actually in flight.
-  useEffect(() => {
-    if (current?.run.status !== 'calling') return;
-    const timer = setInterval(refresh, 10_000);
-    return () => clearInterval(timer);
-  }, [current?.run.status, refresh]);
-
-  const rows = toSheetRows(current?.prospects ?? []);
-
   const dashboardColumn = (
     <View style={styles.stackWide}>
       <View style={styles.header}>
         <ThemedText type="pageTitle">Sales</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Tell Synq who to call. It finds them, calls them, and writes down what they said.
+          Type a number. Synq&apos;s AI sales agent calls it, holds the conversation, and writes
+          down how it went.
         </ThemedText>
       </View>
 
@@ -400,7 +483,7 @@ export default function SalesScreen() {
       ) : (
         <>
           <View style={styles.tiles}>
-            <StatTile label="Businesses found" value={String(dashboard?.businessesFound ?? 0)} />
+            <StatTile label="Calls started" value={String(dashboard?.businessesFound ?? 0)} />
             <StatTile label="Calls finished" value={String(dashboard?.callsCompleted ?? 0)} />
             <StatTile
               label="Hot leads"
@@ -417,14 +500,15 @@ export default function SalesScreen() {
           </View>
 
           {rows.length > 0 ? (
-            <SheetTable rows={rows} />
+            <CallSheet rows={rows} />
           ) : (
             <View
               style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
             >
-              <ThemedText type="smallBold">No call sheet yet</ThemedText>
+              <ThemedText type="smallBold">No calls yet</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Ask Synq to find businesses for you and the list will build itself here.
+                Call a number from the panel {wide ? 'on the right' : 'below'} and the result shows
+                up here.
               </ThemedText>
             </View>
           )}
@@ -433,32 +517,13 @@ export default function SalesScreen() {
     </View>
   );
 
-  // Typing here is how work starts. The agent can search and build a list; it
-  // has no tool that dials, so the call button below stays the only way out.
-  const scanner = (
-    <View style={styles.stack}>
-      <ThemedText type="smallBold">Scan for businesses</ThemedText>
-      <ChatPanel
-        kind="sales_ai"
-        placeholder="Find 20 cafes near Banjara Hills…"
-        emptyHint="Say what you sell and where, and I will build the call sheet."
-        suggestions={[
-          'Find 20 salons in Hyderabad',
-          'Find dental clinics near me',
-          'How did the last run go?',
-        ]}
-        height={wide ? 340 : 300}
-        onReply={refresh}
-      />
-    </View>
-  );
+  const callCard = <CallNumberCard lastPitch={lastPitch} onChanged={refresh} />;
 
   if (!wide) {
     return (
       <ScrollView contentContainerStyle={styles.narrow}>
         {dashboardColumn}
-        {scanner}
-        <CallPanel current={current} onChanged={refresh} />
+        {callCard}
       </ScrollView>
     );
   }
@@ -470,8 +535,7 @@ export default function SalesScreen() {
         contentContainerStyle={styles.rail}
         style={[styles.railOuter, { borderLeftColor: theme.border }]}
       >
-        {scanner}
-        <CallPanel current={current} onChanged={refresh} />
+        {callCard}
       </ScrollView>
     </View>
   );
@@ -485,8 +549,8 @@ const styles = StyleSheet.create({
   narrow: { padding: Spacing.four, gap: Spacing.four },
 
   header: { gap: Spacing.one },
-  stack: { gap: Spacing.three },
   stackWide: { gap: Spacing.four },
+  field: { gap: Spacing.one + 2 },
 
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },
   tile: {
@@ -521,10 +585,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headRow: { paddingTop: 0 },
-  colName: { width: 180, gap: 2 },
-  colPhone: { width: 140 },
+  colPhone: { width: 160, gap: 2 },
   colTemp: { width: 70 },
-  colNote: { width: 260 },
+  colNote: { width: 320 },
 
   chip: {
     alignSelf: 'flex-start',
@@ -534,7 +597,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
 
-  quote: { borderLeftWidth: 2, paddingLeft: Spacing.three, paddingVertical: Spacing.one },
+  pitchInput: { minHeight: 96, textAlignVertical: 'top' },
   terms: { gap: Spacing.one + 2, padding: Spacing.three, borderRadius: Radius.control },
 
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two },
@@ -548,6 +611,7 @@ const styles = StyleSheet.create({
   },
   checkLabel: { flex: 1 },
 
-  progressTrack: { height: 6, borderRadius: Radius.pill, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: Radius.pill },
+  progress: { gap: Spacing.two, paddingTop: Spacing.three, borderTopWidth: 1 },
+  progressHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  transcript: { gap: Spacing.one, padding: Spacing.three, borderRadius: Radius.control },
 });

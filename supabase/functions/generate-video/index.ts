@@ -1,27 +1,23 @@
 // Turns an agreed marketing concept into a video with Veo.
 //
-// Three actions on one function:
+// Two actions on one function, because they are two halves of one job:
 //
-//   models — read-only. Lists the Veo models this key can see. Being listed does
-//            NOT prove billing is on: free-tier projects see them too, and get a
-//            429 with a quota of zero the moment they try one.
 //   start  — records what was asked for, then hands the prompt to Veo and keeps
 //            the operation handle.
 //   check  — polls that handle. When it finishes, the file is pulled down and
 //            put in storage, because the download URL needs the API key and the
 //            key must never reach the app.
 //
-// Every call to Veo is billed from the first second — there is no free tier on
-// any model — so the row is written before the request goes out. If this
-// function dies mid-flight there is still a record of what was paid for.
+// Every call to Veo is billed from the first second — there is no free tier —
+// so the row is written before the request goes out. If this function dies
+// mid-flight there is still a record of what was paid for, and `start` refuses
+// to run twice on a video that already has an operation.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-// Lite is the cheapest Veo there is, under half the price of Fast at the same
-// speed, and 720p vertical is all a reel needs. There is no free option to fall
-// back to: every Veo model bills from the first second.
-const DEFAULT_MODEL = 'veo-3.1-lite-generate-preview';
+/** Fast costs roughly a third of standard per second. Overridable if wanted. */
+const DEFAULT_MODEL = 'veo-3.1-fast-generate-preview';
 const BUCKET = 'generated-videos';
 const MAX_PROMPT_CHARS = 2000;
 
@@ -48,10 +44,7 @@ async function describeGoogleError(response: Response, key: string, model: strin
   }
 
   if (response.status === 429) {
-    // Google's own wording is kept: it says whether the limit is zero (no
-    // billing) or merely hit (slow down), and those need different fixes.
-    const detail = reason ? ` Google said: ${reason.slice(0, 300)}` : '';
-    return `Google refused: this project has no video generation quota. Veo has no free tier, so the Google Cloud project behind the key needs a billing account linked.${detail}`;
+    return 'Google refused: the quota for video generation is used up. Veo has no free tier, so this needs billing enabled on the Google Cloud project behind the key.';
   }
   if (response.status === 403 || /billing|permission|not enabled|quota/i.test(reason)) {
     return `Google refused the request: ${reason || 'permission denied'}. Veo is a paid model — check that billing is on for this key and that the Generative Language API is enabled.`;
@@ -72,8 +65,8 @@ async function describeGoogleError(response: Response, key: string, model: strin
           .filter((name: string) => name.includes('veo'))
           .slice(0, 8);
         available = usable.length
-          ? ` Video models this key can see: ${usable.join(', ')}.`
-          : ' This key cannot see any Veo models at all.';
+          ? ` Video models this key can use: ${usable.join(', ')}.`
+          : ' This key has access to no Veo models at all, which usually means billing is not enabled.';
       }
     } catch {
       // Best effort; the 404 is still the headline.
@@ -122,33 +115,6 @@ Deno.serve(async (req) => {
   }
 
   // -------------------------------------------------------------------------
-  // models — read-only and free. Answers "can this key see Veo", which is not
-  // the same question as "is this project paying for Veo".
-  // -------------------------------------------------------------------------
-  if (body.action === 'models') {
-    try {
-      const list = await fetch(`${BASE}/models?pageSize=200`, {
-        headers: { 'x-goog-api-key': apiKey },
-      });
-      if (!list.ok) {
-        return json({ error: await describeGoogleError(list, apiKey, model) }, 502);
-      }
-      const names = ((await list.json())?.models ?? []).map((m: { name?: string }) =>
-        String(m.name ?? '').replace(/^models\//, '')
-      );
-      const veo = names.filter((n: string) => n.toLowerCase().includes('veo'));
-      return json({
-        configured: model,
-        veo_models: veo,
-        listed: veo.includes(model),
-        note: 'Being listed does not mean the project can generate. Veo only works once a billing account is linked to the Google Cloud project behind this key.',
-      });
-    } catch {
-      return json({ error: 'Could not reach Google.' }, 502);
-    }
-  }
-
-  // -------------------------------------------------------------------------
   // start
   // -------------------------------------------------------------------------
   if (body.action === 'start') {
@@ -191,14 +157,9 @@ Deno.serve(async (req) => {
           instances: [{ prompt }],
           parameters: {
             aspectRatio: aspect,
-            // A number, not a string. The published REST example shows "4",
-            // and the API rejects that with "needs to be a number".
-            durationSeconds: duration,
+            durationSeconds: String(duration),
             resolution,
-            // personGeneration is deliberately omitted. The docs list
-            // allow_adult, but text-to-video rejects it with "not supported",
-            // and which values are accepted varies by model and region. Leaving
-            // it out lets Google apply whatever its own default is.
+            personGeneration: 'allow_adult',
           },
         }),
       });
@@ -338,5 +299,5 @@ Deno.serve(async (req) => {
     return json({ video: ready ?? video });
   }
 
-  return json({ error: 'Unknown action. Use "models", "start" or "check".' }, 400);
+  return json({ error: 'Unknown action. Use "start" or "check".' }, 400);
 });

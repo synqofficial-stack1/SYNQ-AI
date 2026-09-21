@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { AccentColors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { listTasks } from '@/lib/tasks';
 import type { Task } from '@/types/database';
@@ -64,11 +64,11 @@ export default function HistoryScreen() {
   const getStatusColor = (status: string): string => {
     switch (status) {
       case 'completed':
-        return '#16a34a';
+        return AccentColors.success;
       case 'failed':
-        return '#e5484d';
+        return AccentColors.error;
       case 'running':
-        return '#f59e0b';
+        return AccentColors.warning;
       default:
         return theme.textSecondary;
     }
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   taskRight: {
     marginLeft: Spacing.two,
   },
-  error: { color: '#e5484d', textAlign: 'center' },
+  error: { color: AccentColors.error, textAlign: 'center' },
   footer: {
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.four,

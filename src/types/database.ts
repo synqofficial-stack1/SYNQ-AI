@@ -277,5 +277,7 @@ export type Prospect = {
   provider_call_id: string | null;
   called_at: string | null;
   call_error: string | null;
+  /** They asked not to be called again. Blocks the number for good. */
+  do_not_call: boolean;
   created_at: string;
 };
