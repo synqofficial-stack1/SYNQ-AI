@@ -84,11 +84,11 @@ function parseArgs(argv) {
 /** Uploads the mp3 through the call-audio function and returns a signed link. */
 async function hostAudio(audio, env) {
   const base = pick(env, 'EXPO_PUBLIC_SUPABASE_URL');
-  const anonKey = pick(env, 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const anonKey = pick(env, 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
   const token = pick(env, 'SYNQ_CALL_AUDIO_TOKEN');
 
   if (!base || !anonKey) {
-    throw new Error('EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are needed to host the audio.');
+    throw new Error('EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY are needed to host the audio.');
   }
   if (!token) throw new Error('SYNQ_CALL_AUDIO_TOKEN is missing from .env.local.');
 

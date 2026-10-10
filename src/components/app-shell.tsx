@@ -4,7 +4,6 @@ import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } f
 
 import { ChatPanel } from '@/components/chat-panel';
 import { ModalSheet } from '@/components/modal-sheet';
-import { PrimaryButton } from '@/components/primary-button';
 import { Sidebar } from '@/components/sidebar';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -16,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 
 const TITLES: Record<string, string> = {
   '/': 'Dashboard',
+  '/ceo': 'CEO Control Center',
   '/history': 'Activity',
   '/import-leads': 'Sales · CRM',
   '/sales': 'Sales',
@@ -36,12 +36,6 @@ const DESTINATIONS = [
   { label: 'Plans', path: '/upgrade' },
 ];
 
-// The starter workspace includes Sales and Marketing, which is the whole free
-// allowance — so "Add department" always lands on the limit today. Wire this to
-// a real count when departments become user-creatable.
-const FREE_DEPARTMENT_LIMIT = 2;
-const DEPARTMENTS_IN_USE = 2;
-
 export function AppShell({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const pathname = usePathname();
@@ -51,9 +45,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isWide = width >= WideBreakpoint;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [limitOpen, setLimitOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const openSearch = useCallback(() => setSearchOpen(true), []);
@@ -72,10 +66,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <Sidebar
       onNavigate={() => setDrawerOpen(false)}
-      onAddDepartment={() => {
-        setDrawerOpen(false);
-        setLimitOpen(DEPARTMENTS_IN_USE >= FREE_DEPARTMENT_LIMIT);
-      }}
       onUpgrade={() => {
         setDrawerOpen(false);
         router.push('/upgrade');
@@ -97,6 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           showMenuButton={!isWide}
           onMenu={() => setDrawerOpen(true)}
           onOpenSearch={openSearch}
+          onOpenNotifications={() => setNotificationsOpen(true)}
           userLabel={session?.user?.email ?? 'Account'}
           menuOpen={userMenuOpen}
           onToggleMenu={() => setUserMenuOpen((open) => !open)}
@@ -194,30 +185,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         </ScrollView>
       </ModalSheet>
 
+      {/* Synq sends nothing today: no scheduler, no background jobs, no push.
+          The bell says that rather than showing an invented inbox. */}
       <ModalSheet
-        visible={limitOpen}
-        onClose={() => setLimitOpen(false)}
-        title="You've reached your department limit"
-        description={`The free workspace includes ${FREE_DEPARTMENT_LIMIT} departments. Upgrade to Synq Pro to add more.`}
+        visible={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        title="Notifications"
+        description="Nothing to show. Synq doesn't send notifications yet — results appear on the page that asked for them."
+        align="top"
       >
-        <View style={styles.modalActions}>
-          <PrimaryButton
-            title="See plans"
-            onPress={() => {
-              setLimitOpen(false);
-              router.push('/upgrade');
-            }}
-          />
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setLimitOpen(false)}
-            style={styles.tertiary}
-          >
-            <ThemedText type="small" themeColor="textSecondary">
-              Maybe later
-            </ThemedText>
-          </Pressable>
-        </View>
+        <View />
       </ModalSheet>
 
     </View>
@@ -233,6 +210,4 @@ const styles = StyleSheet.create({
   resultList: { maxHeight: 260 },
   result: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Radius.control },
   noResults: { padding: Spacing.three },
-  modalActions: { gap: Spacing.two },
-  tertiary: { alignSelf: 'center', paddingVertical: Spacing.two },
 });

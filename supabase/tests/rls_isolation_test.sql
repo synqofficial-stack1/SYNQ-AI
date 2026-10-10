@@ -64,7 +64,8 @@ select 'a11d1111-1111-4111-8111-111111111111',
        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
        d.id, 'Alice Lead', 'Acme Co', 'Budget approved, wants a demo.', 'new'
 from public.departments d
-where d.user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+where d.user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  and d.department_type = 'sales';
 
 insert into public.tasks (id, user_id, department_id, task_type, input, status)
 select 'a11d2222-2222-4222-8222-222222222222',
@@ -72,7 +73,8 @@ select 'a11d2222-2222-4222-8222-222222222222',
        d.id, 'qualify_lead',
        '{"lead_id":"a11d1111-1111-4111-8111-111111111111"}'::jsonb, 'pending'
 from public.departments d
-where d.user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+where d.user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  and d.department_type = 'sales';
 
 reset role;
 
@@ -92,7 +94,8 @@ select 'b22d1111-1111-4111-8111-111111111111',
        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
        d.id, 'Bob Lead', 'Globex', 'Confidential: Globex renewal is $40k.', 'new'
 from public.departments d
-where d.user_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+where d.user_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  and d.department_type = 'sales';
 
 insert into public.tasks (id, user_id, department_id, task_type, input, status)
 select 'b22d2222-2222-4222-8222-222222222222',
@@ -100,7 +103,8 @@ select 'b22d2222-2222-4222-8222-222222222222',
        d.id, 'draft_outreach_email',
        '{"lead_id":"b22d1111-1111-4111-8111-111111111111"}'::jsonb, 'pending'
 from public.departments d
-where d.user_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+where d.user_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  and d.department_type = 'sales';
 
 reset role;
 

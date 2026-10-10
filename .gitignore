@@ -9,6 +9,13 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Build and test output
+.next/
+/build/
+coverage/
+.vercel/
+.turbo/
+
 # Native
 .kotlin/
 *.orig.*
@@ -36,6 +43,10 @@ yarn-error.*
 .env*
 !.env.example
 
+# Google OAuth client downloads contain a client_secret and must stay local.
+*login*google*.json
+*google*credentials*.json
+
 # typescript
 *.tsbuildinfo
 
@@ -44,3 +55,12 @@ example
 # generated native folders
 /ios
 /android
+
+# Google OAuth client credentials. These carry a client_secret, so they never
+# belong in the repo — the values live in the Supabase dashboard instead
+# (Authentication → Providers → Google). See docs/architecture.md.
+*credentials*.json
+client_secret*.json
+
+# Generated Supabase CLI state
+supabase/.temp/

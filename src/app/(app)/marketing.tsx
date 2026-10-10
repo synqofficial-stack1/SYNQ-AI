@@ -4,16 +4,8 @@ import { ChatPanel } from '@/components/chat-panel';
 import { ThemedText } from '@/components/themed-text';
 import { MaxContentWidth, Spacing, WideBreakpoint } from '@/constants/theme';
 
-// Marketing is one chat and nothing else.
-//
-// It used to be three pages with campaign rows, content rows, statuses and a
-// tab strip, none of which could actually post, send or launch anything — so
-// every status on them was a status about a draft. A chat is the honest shape
-// for that: it helps you think, and says so.
-//
-// `kind` decides which system prompt the server loads. Both 'campaign' and
-// 'content' resolve to the marketing department; this uses one of them rather
-// than introducing a kind the conversations table would reject.
+// One marketing workflow: brainstorm in chat, turn an approved concept into a
+// reel, then connect a platform and explicitly confirm before it is published.
 
 export default function MarketingScreen() {
   const { width, height } = useWindowDimensions();
@@ -24,8 +16,8 @@ export default function MarketingScreen() {
       <View style={styles.header}>
         <ThemedText type="pageTitle">Marketing</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Think out loud about campaigns, positioning and copy. It drafts and argues back. It
-          does not post anything.
+          Brainstorm a reel, make it with Synq AI, then choose Instagram, X, or LinkedIn and
+          confirm before it goes public.
         </ThemedText>
       </View>
 
@@ -34,9 +26,9 @@ export default function MarketingScreen() {
         placeholder="What are we trying to sell, and to whom?"
         emptyHint="Describe your business and who you want to reach, and we can work from there."
         suggestions={[
-          'Help me position a website service for local salons',
-          'Write three Instagram captions for a launch',
-          'Sketch a 4 second reel idea for Instagram',
+          'Brainstorm three short reel ideas for my business',
+          'Write a 6 second Instagram reel script with a strong hook and a clear CTA',
+          'Turn this product idea into a vertical reel concept and caption',
         ]}
         enableVideo
         // Sizes the message list, not the panel: the header, suggestion row and

@@ -1,112 +1,151 @@
 import { Link, router } from 'expo-router';
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AuthBackdrop, BrandMark } from '@/components/auth-backdrop';
+import { GoldButton, GoogleButton, OrDivider } from '@/components/auth-buttons';
 import { AuthCard } from '@/components/auth-card';
-import { PrimaryButton } from '@/components/primary-button';
-import { TextField } from '@/components/text-field';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { AuthField } from '@/components/auth-field';
+import { EyeIcon, EyeOffIcon, LockIcon, MailIcon } from '@/components/auth-icons';
+import { AccentColors } from '@/constants/theme';
+import { authErrorMessage, googleSignInIsEnabled, signInWithGoogle } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+
+type Busy = 'password' | 'google' | null;
 
 export default function SignupScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
 
-  // With "Confirm email" turned OFF in the Supabase dashboard, signUp returns a
-  // session immediately and the user lands straight in the app. With it ON,
-  // Supabase sends a confirmation email and withholds the session until the user
-  // clicks the link — the `else` branch below covers that case.
-  //
-  // TODO: non-blocking email verification. Supabase's single "Confirm email"
-  // toggle is all-or-nothing (either it blocks login and sends the email, or it
-  // sends nothing). To get instant access AND a verification email, send the
-  // verification separately and show a dismissible "verify your email" banner in
-  // the app instead of gating access on it.
+  useEffect(() => {
+    let active = true;
+    googleSignInIsEnabled().then((enabled) => {
+      if (active) setGoogleEnabled(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Email confirmation is disabled for this project, so a successful signup
+  // should return a session and route directly into the app. A missing session
+  // can also mean Supabase suppressed a duplicate signup to prevent enumeration.
   async function handleSignup() {
     setError(null);
     setInfo(null);
-    setLoading(true);
+    setBusy('password');
     try {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
       });
       if (signUpError) {
-        setError(signUpError.message);
+        setError(authErrorMessage(signUpError));
         return;
       }
       if (data.session) {
         router.replace('/(app)');
         return;
       }
-      setInfo('Account created. Check your email to confirm it, then log in.');
+      setInfo('Could not start your session. Try logging in, or reset your password if you already have an account.');
     } catch {
       // signUp rejects (rather than returning an `error` field) when the request
       // never reaches Supabase at all, e.g. no internet connection.
       setError('Could not reach the server. Check your connection and try again.');
     } finally {
-      setLoading(false);
+      setBusy(null);
+    }
+  }
+
+  async function handleGoogle() {
+    setError(null);
+    setInfo(null);
+    setBusy('google');
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : authErrorMessage(null));
+    } finally {
+      setBusy(null);
     }
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.centerColumn}
-        >
-          <AuthCard>
-            <ThemedText type="title" style={styles.title}>
-              Synq AI
-            </ThemedText>
-            <ThemedText type="subtitle" style={styles.subtitle}>
-              Create an account
-            </ThemedText>
+    <AuthBackdrop>
+      <BrandMark />
 
-            <TextField
-              placeholder="Email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoComplete="email"
+      <AuthCard>
+        {googleEnabled ? (
+          <>
+            <GoogleButton
+              title="Continue with Google"
+              onPress={handleGoogle}
+              loading={busy === 'google'}
+              disabled={busy !== null}
             />
-            <TextField
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="password-new"
-            />
+            <OrDivider />
+          </>
+        ) : null}
 
-            {error ? <ThemedText style={styles.error}>{error}</ThemedText> : null}
-            {info ? <ThemedText style={styles.info}>{info}</ThemedText> : null}
+        <AuthField
+          icon={<MailIcon />}
+          placeholder="Email"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoComplete="email"
+          textContentType="emailAddress"
+          inputMode="email"
+          returnKeyType="next"
+        />
 
-            <PrimaryButton title="Sign Up" onPress={handleSignup} loading={loading} />
+        <AuthField
+          icon={<LockIcon />}
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!reveal}
+          autoComplete="password-new"
+          textContentType="newPassword"
+          returnKeyType="go"
+          onSubmitEditing={handleSignup}
+          trailing={reveal ? <EyeIcon /> : <EyeOffIcon />}
+          trailingLabel={reveal ? 'Hide password' : 'Show password'}
+          onTrailingPress={() => setReveal((value) => !value)}
+        />
 
-            <Link href="/(auth)/login" style={styles.link}>
-              <ThemedText type="link">Already have an account? Log in</ThemedText>
-            </Link>
-          </AuthCard>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ThemedView>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {info ? <Text style={styles.info}>{info}</Text> : null}
+
+        <GoldButton
+          title="Create account"
+          onPress={handleSignup}
+          loading={busy === 'password'}
+          disabled={busy !== null || !email.trim() || !password}
+        />
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Already have an account? </Text>
+          <Link href="/(auth)/login" asChild>
+            <Pressable accessibilityRole="link">
+              <Text style={styles.footerLink}>Log in</Text>
+            </Pressable>
+          </Link>
+        </View>
+      </AuthCard>
+    </AuthBackdrop>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  safeArea: { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.four },
-  centerColumn: { width: '100%' },
-  title: { textAlign: 'center' },
-  subtitle: { textAlign: 'center', marginBottom: Spacing.three },
-  error: { color: '#e5484d' },
-  info: { color: '#3c87f7' },
-  link: { alignSelf: 'center', marginTop: Spacing.two },
+  error: { color: AccentColors.error, fontSize: 13, lineHeight: 19 },
+  info: { color: AccentColors.primaryLight, fontSize: 13, lineHeight: 19 },
+  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 2 },
+  footerText: { color: 'rgba(255, 255, 255, 0.72)', fontSize: 14 },
+  footerLink: { color: AccentColors.primaryLight, fontSize: 14, fontWeight: '600' },
 });

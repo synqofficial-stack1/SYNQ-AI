@@ -7,7 +7,15 @@ import { VideoActions } from '@/components/video-actions';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ChatError, loadLatestConversation, sendChatMessage, type ChatKind } from '@/lib/chat';
+import {
+  ChatError,
+  listConversations,
+  loadLatestConversation,
+  loadMessages,
+  sendChatMessage,
+  type ChatKind,
+  type ConversationSummary,
+} from '@/lib/chat';
 
 type Turn = { role: 'user' | 'model'; content: string };
 
@@ -71,13 +79,38 @@ export function ChatPanel({
   const [navigations, setNavigations] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [hydrating, setHydrating] = useState(resume);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const selectionRef = useRef(0);
 
   useEffect(() => {
-    if (!resume) return;
     let cancelled = false;
+    const selection = ++selectionRef.current;
+    setConversationId(undefined);
+    setTurns([]);
+    setHydrating(resume);
+    setHistoryLoading(true);
+
+    listConversations(kind)
+      .then((items) => {
+        if (!cancelled) setConversations(items);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    if (!resume) {
+      setHydrating(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     loadLatestConversation(kind)
       .then((found) => {
-        if (cancelled || !found) return;
+        if (cancelled || selection !== selectionRef.current || !found) return;
         setConversationId(found.id);
         setTurns(found.messages.map((m) => ({ role: m.role, content: m.content })));
       })
@@ -90,6 +123,27 @@ export function ChatPanel({
       cancelled = true;
     };
   }, [kind, resume]);
+
+  async function openConversation(item: ConversationSummary) {
+    const selection = ++selectionRef.current;
+    setHydrating(true);
+    setHistoryOpen(false);
+    setError(null);
+    try {
+      const messages = await loadMessages(item.id);
+      if (selection !== selectionRef.current) return;
+      setConversationId(item.id);
+      setTurns(messages.map((message) => ({ role: message.role, content: message.content })));
+      setNavigations([]);
+      setSaved(false);
+    } catch (e) {
+      if (selection === selectionRef.current) {
+        setError(e instanceof Error ? e.message : 'Could not open that chat.');
+      }
+    } finally {
+      if (selection === selectionRef.current) setHydrating(false);
+    }
+  }
 
   const send = useCallback(
     async (text: string) => {
@@ -113,6 +167,7 @@ export function ChatPanel({
         setError(e instanceof ChatError ? e.message : 'Something went wrong. Please try again.');
       } finally {
         setSending(false);
+        listConversations(kind).then(setConversations).catch(() => {});
       }
     },
     [conversationId, context, kind, onReply, sending]
@@ -129,19 +184,34 @@ export function ChatPanel({
 
   return (
     <View style={[styles.panel, { borderColor: theme.border, backgroundColor: theme.surface }]}>
-      {turns.length > 0 ? (
-        <View style={[styles.panelHeader, { borderColor: theme.border }]}>
-          <ThemedText type="caption" themeColor="textSecondary">
-            {turns.length} message{turns.length === 1 ? '' : 's'} · remembered
-          </ThemedText>
+      <View style={[styles.panelHeader, { borderColor: theme.border }]}>
+        <ThemedText type="caption" themeColor="textSecondary">
+          {turns.length > 0
+            ? `${turns.length} message${turns.length === 1 ? '' : 's'} · saved`
+            : 'Your conversations'}
+        </ThemedText>
+        <View style={styles.headerActions}>
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Show previous chats"
+            disabled={sending}
+            onPress={() => setHistoryOpen((open) => !open)}
+          >
+            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+              {historyOpen ? 'Hide chats' : `Previous chats${conversations.length ? ` (${conversations.length})` : ''}`}
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={sending}
             onPress={() => {
+              selectionRef.current += 1;
               setConversationId(undefined);
               setTurns([]);
               setNavigations([]);
               setError(null);
               setSaved(false);
+              setHistoryOpen(false);
             }}
           >
             <ThemedText type="caption" style={{ color: AccentColors.primary }}>
@@ -149,6 +219,51 @@ export function ChatPanel({
             </ThemedText>
           </Pressable>
         </View>
+      </View>
+
+      {historyOpen ? (
+        <ScrollView
+          style={[styles.historyList, { borderBottomColor: theme.border }]}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+        >
+          {historyLoading ? (
+            <ThemedText type="caption" themeColor="textSecondary" style={styles.historyEmpty}>
+              Loading chats…
+            </ThemedText>
+          ) : conversations.length === 0 ? (
+            <ThemedText type="caption" themeColor="textSecondary" style={styles.historyEmpty}>
+              No previous chats for this assistant yet.
+            </ThemedText>
+          ) : (
+            conversations.map((item) => (
+              <Pressable
+                key={item.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open chat ${item.title || 'Untitled chat'}`}
+                disabled={sending}
+                onPress={() => openConversation(item)}
+                style={({ hovered }) => [
+                  styles.historyItem,
+                  {
+                    backgroundColor:
+                      item.id === conversationId || hovered ? theme.surfaceRaised : 'transparent',
+                  },
+                ]}
+              >
+                <ThemedText type="caption" numberOfLines={1} style={styles.historyTitle}>
+                  {item.title || 'Untitled chat'}
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  {new Date(item.updated_at).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </ThemedText>
+              </Pressable>
+            ))
+          )}
+        </ScrollView>
       ) : null}
 
       <ScrollView
@@ -317,6 +432,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     borderBottomWidth: 1,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  historyList: { maxHeight: 180, borderBottomWidth: 1 },
+  historyEmpty: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  historyTitle: { flex: 1 },
   thread: { gap: Spacing.two, padding: Spacing.three },
   hint: { paddingVertical: Spacing.three },
   bubble: {

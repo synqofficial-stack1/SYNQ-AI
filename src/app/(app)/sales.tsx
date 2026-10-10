@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { PrimaryButton } from '@/components/primary-button';
+import { ModalSheet } from '@/components/modal-sheet';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
+import { AccentColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { subscribeAnalytics } from '@/lib/analytics-events';
 import { callingWindowNote, withinCallingWindow } from '@/lib/sales/compliance';
 import {
   callNumber,
@@ -35,7 +37,6 @@ import type { Temperature } from '@/types/database';
 // the place-calls function. They are off this screen while single-number
 // calling is the focus.
 
-const RAIL_WIDTH = 400;
 /** How often a live call is checked on. */
 const CALL_POLL_MS = 4000;
 
@@ -444,8 +445,7 @@ function CallNumberCard({
 
 export default function SalesScreen() {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
-  const wide = width >= WideBreakpoint;
+  const [callSheetOpen, setCallSheetOpen] = useState(false);
 
   const [dashboard, setDashboard] = useState<SalesDashboard | null>(null);
   const [rows, setRows] = useState<SheetRow[]>([]);
@@ -464,19 +464,39 @@ export default function SalesScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
+
+  useEffect(() => subscribeAnalytics(() => refresh()), [refresh]);
 
   const dashboardColumn = (
     <View style={styles.stackWide}>
       <View style={styles.header}>
         <ThemedText type="pageTitle">Sales</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Type a number. Synq&apos;s AI sales agent calls it, holds the conversation, and writes
-          down how it went.
+          Track your AI calls, results, and follow-up opportunities.
         </ThemedText>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setCallSheetOpen(true)}
+        style={({ hovered, pressed }) => [
+          styles.callAction,
+          {
+            borderColor: hovered || pressed ? AccentColors.primary : theme.border,
+            backgroundColor: hovered || pressed ? theme.surfaceRaised : theme.surface,
+          },
+        ]}
+      >
+        <ThemedText type="smallBold">Call a number</ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">
+          Open the AI calling form when you&apos;re ready.
+        </ThemedText>
+      </Pressable>
 
       {loading ? (
         <ActivityIndicator color={AccentColors.primary} />
@@ -507,8 +527,7 @@ export default function SalesScreen() {
             >
               <ThemedText type="smallBold">No calls yet</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Call a number from the panel {wide ? 'on the right' : 'below'} and the result shows
-                up here.
+                Use Call a number above to start an AI call; the result will show up here.
               </ThemedText>
             </View>
           )}
@@ -517,39 +536,48 @@ export default function SalesScreen() {
     </View>
   );
 
-  const callCard = <CallNumberCard lastPitch={lastPitch} onChanged={refresh} />;
-
-  if (!wide) {
-    return (
-      <ScrollView contentContainerStyle={styles.narrow}>
-        {dashboardColumn}
-        {callCard}
-      </ScrollView>
-    );
-  }
-
   return (
-    <View style={styles.split}>
-      <ScrollView contentContainerStyle={styles.mainColumn}>{dashboardColumn}</ScrollView>
-      <ScrollView
-        contentContainerStyle={styles.rail}
-        style={[styles.railOuter, { borderLeftColor: theme.border }]}
+    <>
+      <ScrollView contentContainerStyle={styles.narrow}>{dashboardColumn}</ScrollView>
+      <ModalSheet
+        visible={callSheetOpen}
+        onClose={() => setCallSheetOpen(false)}
+        title="Call a number"
+        description="Enter the number and offer details when you’re ready to start an AI call."
+        align="top"
       >
-        {callCard}
-      </ScrollView>
-    </View>
+        <CallNumberCard
+          lastPitch={lastPitch}
+          onChanged={() => {
+            refresh();
+            setCallSheetOpen(false);
+          }}
+        />
+      </ModalSheet>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  split: { flex: 1, flexDirection: 'row' },
-  mainColumn: { padding: Spacing.five, gap: Spacing.four },
-  railOuter: { width: RAIL_WIDTH, borderLeftWidth: 1 },
-  rail: { padding: Spacing.four, gap: Spacing.three },
-  narrow: { padding: Spacing.four, gap: Spacing.four },
+  narrow: {
+    padding: Spacing.five,
+    gap: Spacing.four,
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
+  },
 
   header: { gap: Spacing.one },
   stackWide: { gap: Spacing.four },
+  callAction: {
+    alignSelf: 'flex-start',
+    minWidth: 210,
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Radius.control,
+  },
   field: { gap: Spacing.one + 2 },
 
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },

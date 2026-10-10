@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { notifyAnalyticsChanged } from '@/lib/analytics-events';
 import type { CallOutcome, Lead } from '@/types/database';
 
 export type CallQueue = {
@@ -82,6 +83,7 @@ export async function recordCall(input: {
   });
 
   if (error) throw new Error(error.message);
+  notifyAnalyticsChanged();
 }
 
 export type FollowUp = {

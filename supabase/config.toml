@@ -1,6 +1,14 @@
-project_id = "ygbfdcwhrrxsjvymyrwb"
+project_id = "jjdrlgwpvxyxeruyygli"
 
 [functions.run-task]
 # Supabase checks the caller's session token before the function runs, so an
 # unauthenticated request never reaches our code.
+verify_jwt = true
+
+[functions.social-auth]
+# OAuth callbacks come from the providers without a Supabase JWT; POST actions
+# verify the signed-in user's JWT in the function before they can do anything.
+verify_jwt = false
+
+[functions.social-post]
 verify_jwt = true

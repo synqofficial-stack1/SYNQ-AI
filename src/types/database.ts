@@ -281,3 +281,38 @@ export type Prospect = {
   do_not_call: boolean;
   created_at: string;
 };
+
+// --- supabase/migrations/20260921000000_platform_events.sql -----------------
+
+export const EVENT_SEVERITIES = ['info', 'warning', 'error'] as const;
+export type EventSeverity = (typeof EVENT_SEVERITIES)[number];
+
+export const ADMIN_ROLES = ['ceo', 'admin'] as const;
+export type AdminRole = (typeof ADMIN_ROLES)[number];
+
+/**
+ * The accounts allowed to read across users. Written only with the
+ * service-role key — there is deliberately no insert policy.
+ */
+export type AppAdmin = {
+  user_id: string;
+  role: AdminRole;
+  note: string | null;
+  granted_at: string;
+};
+
+/**
+ * The platform timeline. Written by triggers on the tables above, never by the
+ * app. `user_id` is null for events that belong to no single account.
+ */
+export type PlatformEvent = {
+  id: string;
+  user_id: string | null;
+  source: string;
+  kind: string;
+  severity: EventSeverity;
+  summary: string;
+  subject_id: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+};
