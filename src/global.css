@@ -1,0 +1,31 @@
+:root {
+  --font-display:
+    Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,
+    Segoe UI Symbol, Noto Color Emoji;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+  --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+}
+
+/*
+ * Chrome paints its own background on a field it has autofilled, and that
+ * colour is not reachable by ordinary CSS — on a dark form it lands as a white
+ * or pale-blue slab behind the text. There is no property to turn it off, so
+ * this uses the two tricks that do work: clip the painted background to the
+ * glyphs, and push its transition so far into the future that it never
+ * arrives. Everything else (the field's own dark fill, the border, the focus
+ * ring) is drawn by React Native styles as usual.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: #ffffff;
+  caret-color: #ffffff;
+  transition: background-color 100000s ease-in-out 0s;
+}

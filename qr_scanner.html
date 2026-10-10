@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expo Go QR Scanner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            margin: 10px 0 30px 0;
+            font-size: 16px;
+        }
+        #qrcode {
+            display: inline-block;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+        }
+        .url {
+            margin-top: 20px;
+            padding: 12px;
+            background: #f0f0f0;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 14px;
+            word-break: break-all;
+            color: #333;
+        }
+        .instruction {
+            margin-top: 30px;
+            padding: 15px;
+            background: #e8f4f8;
+            border-left: 4px solid #0099cc;
+            border-radius: 4px;
+            text-align: left;
+            font-size: 14px;
+            color: #333;
+        }
+        .instruction h3 {
+            margin: 0 0 10px 0;
+            color: #0099cc;
+        }
+        .instruction li {
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Synq AI — Expo Go</h1>
+        <p>Scan this QR code with Expo Go on your phone</p>
+
+        <div id="qrcode"></div>
+
+        <div class="url" id="urlDisplay">
+            URL will appear here
+        </div>
+
+        <div class="instruction">
+            <h3>How to use:</h3>
+            <ol>
+                <li>Install <strong>Expo Go</strong> on your Android or iPhone (free from App Store / Play Store)</li>
+                <li>Open Expo Go</li>
+                <li>Tap the camera icon or "Scan QR Code"</li>
+                <li>Point at the QR code above</li>
+                <li>Wait for the app to load (first load takes 20-30 seconds)</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Generate QR code for localhost
+        const url = "http://localhost:8081";
+        new QRCode(document.getElementById("qrcode"), {
+            text: url,
+            width: 256,
+            height: 256,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+        });
+
+        document.getElementById("urlDisplay").textContent = url;
+    </script>
+</body>
+</html>

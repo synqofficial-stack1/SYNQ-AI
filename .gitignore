@@ -1,0 +1,59 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files — never commit real keys.
+# Broad pattern on purpose: catches .env, .env.local, .env.local.txt, .env.production, etc.
+# .env.example is the one tracked file (placeholders only) and is re-included below.
+.env*
+!.env.example
+
+# Google OAuth client downloads contain a client_secret and must stay local.
+*login*google*.json
+*google*credentials*.json
+
+# typescript
+*.tsbuildinfo
+
+example
+
+# generated native folders
+/ios
+/android
+
+# Google OAuth client credentials. These carry a client_secret, so they never
+# belong in the repo — the values live in the Supabase dashboard instead
+# (Authentication → Providers → Google). See docs/architecture.md.
+*credentials*.json
+client_secret*.json
+
+# Generated Supabase CLI state
+supabase/.temp/
