@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { notifyAnalyticsChanged } from '@/lib/analytics-events';
 
 export const CHAT_KINDS = ['assistant', 'sales_ai', 'crm', 'content', 'campaign'] as const;
 export type ChatKind = (typeof CHAT_KINDS)[number];
@@ -39,6 +40,8 @@ export async function sendChatMessage(input: {
   });
 
   if (error) {
+    // The user turn may already have been persisted by the function.
+    notifyAnalyticsChanged();
     // supabase-js flattens any non-2xx into "Edge Function returned a non-2xx
     // status code" and hides the real body on `context`. Dig it out, or the user
     // sees nothing they can act on.
@@ -61,6 +64,7 @@ export async function sendChatMessage(input: {
   }
 
   if (!data?.reply) throw new ChatError('The agent returned nothing. Please try again.');
+  notifyAnalyticsChanged();
   return {
     conversationId: data.conversation_id,
     reply: data.reply,
@@ -87,6 +91,27 @@ export async function loadLatestConversation(
   if (error) throw new Error(error.message);
   if (!data) return null;
   return { id: data.id, messages: await loadMessages(data.id) };
+}
+
+export type ConversationSummary = {
+  id: string;
+  title: string | null;
+  updated_at: string;
+};
+
+/** Recent conversations for this agent. RLS scopes the list to the signed-in user. */
+export async function listConversations(
+  kind: ChatKind,
+  limit = 100
+): Promise<ConversationSummary[]> {
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('id, title, updated_at')
+    .eq('kind', kind)
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ConversationSummary[];
 }
 
 /** Full thread, oldest first. RLS limits this to the caller's own rows. */

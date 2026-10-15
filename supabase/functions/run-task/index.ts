@@ -9,7 +9,9 @@
 // client that tries to send its own system prompt is ignored, so no agent's
 // behaviour can be rewritten from the app.
 
+// eslint-disable-next-line import/no-unresolved -- Deno resolves JSR imports.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { withAICredits } from '../_shared/ai-credits.ts';
 
 const GEMINI_MODEL = 'gemini-3.6-flash';
 
@@ -189,6 +191,7 @@ Deno.serve(async (req) => {
 
   const extra = String(body.extra_instructions ?? '').slice(0, MAX_EXTRA_CHARS).trim();
 
+  return withAICredits(user.id, 'chat', async () => {
   // Record the attempt before calling out, so a failure leaves a trace the user
   // can see rather than vanishing.
   const { data: task, error: insertError } = await supabase
@@ -344,4 +347,5 @@ Deno.serve(async (req) => {
   if (updateError) return json({ error: updateError.message, task_id: task.id }, 500);
 
   return json({ task_id: task.id, task_type: taskType, output });
+  });
 });

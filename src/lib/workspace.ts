@@ -4,7 +4,7 @@ import { TASK_LABELS, type SalesTaskType } from '@/lib/tasks';
 export type ActivityEntry = {
   id: string;
   label: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: string;
   createdAt: string;
 };
 
@@ -26,31 +26,71 @@ function describeTaskType(taskType: string): string {
  * the signed-in user, so no explicit user filter is needed.
  */
 export async function loadWorkspaceSummary(): Promise<WorkspaceSummary> {
-  const [tasksResult, leadsResult] = await Promise.all([
+  const [
+    recentTasksResult,
+    taskCount,
+    completedTaskCount,
+    failedTaskCount,
+    recentSalesRunsResult,
+    salesRunCount,
+    completedSalesRunCount,
+    failedSalesRunCount,
+    leadsResult,
+  ] = await Promise.all([
     supabase
       .from('tasks')
       .select('id, task_type, status, created_at')
       .order('created_at', { ascending: false })
       .limit(50),
+    supabase.from('tasks').select('id', { count: 'exact', head: true }),
+    supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
+    supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'failed'),
+    supabase
+      .from('sales_runs')
+      .select('id, request, status, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase.from('sales_runs').select('id', { count: 'exact', head: true }),
+    supabase.from('sales_runs').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
+    supabase.from('sales_runs').select('id', { count: 'exact', head: true }).eq('status', 'failed'),
     supabase.from('leads').select('id', { count: 'exact', head: true }),
   ]);
 
-  if (tasksResult.error) throw new Error(tasksResult.error.message);
+  if (recentTasksResult.error) throw new Error(recentTasksResult.error.message);
+  if (taskCount.error) throw new Error(taskCount.error.message);
+  if (completedTaskCount.error) throw new Error(completedTaskCount.error.message);
+  if (failedTaskCount.error) throw new Error(failedTaskCount.error.message);
+  if (recentSalesRunsResult.error) throw new Error(recentSalesRunsResult.error.message);
+  if (salesRunCount.error) throw new Error(salesRunCount.error.message);
+  if (completedSalesRunCount.error) throw new Error(completedSalesRunCount.error.message);
+  if (failedSalesRunCount.error) throw new Error(failedSalesRunCount.error.message);
 
-  const tasks = tasksResult.data ?? [];
-
-  return {
-    totalRuns: tasks.length,
-    completedRuns: tasks.filter((task) => task.status === 'completed').length,
-    failedRuns: tasks.filter((task) => task.status === 'failed').length,
-    // A failed count query shouldn't take the whole dashboard down with it.
-    leadCount: leadsResult.error ? 0 : (leadsResult.count ?? 0),
-    recent: tasks.slice(0, 6).map((task) => ({
+  const tasks = recentTasksResult.data ?? [];
+  const salesRuns = recentSalesRunsResult.data ?? [];
+  const recent = [
+    ...tasks.map((task) => ({
       id: task.id,
       label: describeTaskType(task.task_type),
       status: task.status,
       createdAt: task.created_at,
     })),
+    ...salesRuns.map((run) => ({
+      id: run.id,
+      label: run.request,
+      status: run.status,
+      createdAt: run.created_at,
+    })),
+  ]
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, 6);
+
+  return {
+    totalRuns: (taskCount.count ?? 0) + (salesRunCount.count ?? 0),
+    completedRuns: (completedTaskCount.count ?? 0) + (completedSalesRunCount.count ?? 0),
+    failedRuns: (failedTaskCount.count ?? 0) + (failedSalesRunCount.count ?? 0),
+    // A failed count query shouldn't take the whole dashboard down with it.
+    leadCount: leadsResult.error ? 0 : (leadsResult.count ?? 0),
+    recent,
   };
 }
 
@@ -74,7 +114,7 @@ function dayKey(date: Date): string {
 /**
  * Activity per day over the last fortnight, counted from the user's own rows.
  * There is no analytics service behind this — it is arithmetic over tasks,
- * chat messages and calls, which is why it can only ever report what actually
+ * sales runs, video generations, social posts, chat messages and calls, which is why it can only ever report what actually
  * happened.
  */
 export async function loadUsage(): Promise<UsageStats> {
@@ -83,8 +123,11 @@ export async function loadUsage(): Promise<UsageStats> {
   since.setHours(0, 0, 0, 0);
   const sinceIso = since.toISOString();
 
-  const [tasksResult, messagesResult, callsResult] = await Promise.all([
+  const [tasksResult, salesRunsResult, videosResult, socialPostsResult, messagesResult, callsResult] = await Promise.all([
     supabase.from('tasks').select('created_at, task_type').gte('created_at', sinceIso),
+    supabase.from('sales_runs').select('created_at').gte('created_at', sinceIso),
+    supabase.from('videos').select('created_at').gte('created_at', sinceIso),
+    supabase.from('social_posts').select('created_at').gte('created_at', sinceIso),
     supabase
       .from('messages')
       .select('created_at, role, conversations ( kind )')
@@ -94,8 +137,14 @@ export async function loadUsage(): Promise<UsageStats> {
   ]);
 
   if (tasksResult.error) throw new Error(tasksResult.error.message);
+  if (salesRunsResult.error) throw new Error(salesRunsResult.error.message);
+  if (videosResult.error) throw new Error(videosResult.error.message);
+  if (socialPostsResult.error) throw new Error(socialPostsResult.error.message);
 
   const tasks = tasksResult.data ?? [];
+  const salesRuns = salesRunsResult.data ?? [];
+  const videos = videosResult.data ?? [];
+  const socialPosts = socialPostsResult.data ?? [];
   const messages = (messagesResult.data ?? []) as unknown as {
     created_at: string;
     conversations: { kind: string } | null;
@@ -117,6 +166,9 @@ export async function loadUsage(): Promise<UsageStats> {
     if (buckets.has(key)) buckets.set(key, buckets.get(key)! + 1);
   };
   tasks.forEach((row) => tally(row.created_at));
+  salesRuns.forEach((row) => tally(row.created_at));
+  videos.forEach((row) => tally(row.created_at));
+  socialPosts.forEach((row) => tally(row.created_at));
   messages.forEach((row) => tally(row.created_at));
   calls.forEach((row) => tally(row.created_at));
 
@@ -130,8 +182,8 @@ export async function loadUsage(): Promise<UsageStats> {
     messages.filter((m) => m.conversations?.kind === kind).length;
 
   const breakdown = [
-    { label: 'Sales AI', count: tasks.length - marketingTasks + byKind('sales_ai') },
-    { label: 'Marketing AI', count: marketingTasks + byKind('content') + byKind('campaign') },
+    { label: 'Sales AI', count: tasks.length - marketingTasks + salesRuns.length + byKind('sales_ai') },
+    { label: 'Marketing AI', count: marketingTasks + videos.length + socialPosts.length + byKind('content') + byKind('campaign') },
     { label: 'Workspace assistant', count: byKind('assistant') },
     { label: 'CRM coach', count: byKind('crm') },
     { label: 'Calls logged', count: calls.length },

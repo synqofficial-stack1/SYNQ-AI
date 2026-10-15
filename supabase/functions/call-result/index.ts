@@ -14,6 +14,7 @@
 // cold leads.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { saveCallReport } from '../_shared/call-report.ts';
 
 const GEMINI_MODEL = 'gemini-3.6-flash';
 /** Reject a signature older than this, so a captured request cannot be replayed. */
@@ -207,10 +208,13 @@ Deno.serve(async (req) => {
 
   const { data: prospect } = await supabase
     .from('prospects')
-    .select('id, user_id, run_id, name, phone, lead_id')
+    .select('id, user_id, run_id, name, phone, lead_id, conversation_id')
     .eq('id', prospectId)
     .maybeSingle();
   if (!prospect) return json({ error: 'Unknown prospect.' }, 404);
+  if (!data.conversation_id || (prospect.conversation_id && prospect.conversation_id !== data.conversation_id)) {
+    return json({ error: 'Conversation does not match this call.' }, 400);
+  }
 
   const turns = (data.transcript ?? []).filter((t) => (t.message ?? '').trim().length > 0);
   const connected = turns.some((t) => t.role === 'user');
@@ -244,52 +248,59 @@ Deno.serve(async (req) => {
     if (!note) note = 'Call completed. Transcript saved.';
   }
 
-  await supabase
+  const { data: claimed, error: claimError } = await supabase
     .from('prospects')
     .update({
       outreach_status: 'called',
       call_notes: note,
       temperature,
+      do_not_call: String(data.analysis?.data_collection_results?.do_not_call?.value ?? '').toLowerCase() === 'true',
       transcript_summary: data.analysis?.transcript_summary ?? null,
       conversation_id: data.conversation_id ?? null,
       called_at: new Date().toISOString(),
     })
-    .eq('id', prospectId);
+    .eq('id', prospectId)
+    .eq('outreach_status', 'dialing')
+    .select('id');
+  if (claimError) return json({ error: 'Could not save the call result.' }, 500);
 
   // Mirror into the CRM so a called business becomes a real contact with a real
   // call history, reachable from Cold Call and Follow-ups like any other.
-  let leadId = prospect.lead_id;
-  if (!leadId) {
-    const { data: lead } = await supabase
-      .from('leads')
-      .insert({
+  if (claimed?.length) {
+    let leadId = prospect.lead_id;
+    if (!leadId) {
+      const { data: lead } = await supabase
+        .from('leads')
+        .insert({
+          user_id: prospect.user_id,
+          name: prospect.name,
+          phone: prospect.phone,
+          notes: note,
+          status: temperature === 'hot' ? 'qualified' : 'contacted',
+        })
+        .select('id')
+        .single();
+      leadId = lead?.id ?? null;
+      if (leadId) await supabase.from('prospects').update({ lead_id: leadId }).eq('id', prospectId);
+    }
+
+    if (leadId) {
+      const outcome = !connected
+        ? 'no_answer'
+        : temperature === 'hot'
+          ? 'interested'
+          : temperature === 'warm'
+            ? 'call_back'
+            : 'not_interested';
+
+      await supabase.from('calls').insert({
         user_id: prospect.user_id,
-        name: prospect.name,
-        phone: prospect.phone,
+        lead_id: leadId,
+        outcome,
         notes: note,
-        status: temperature === 'hot' ? 'qualified' : 'contacted',
-      })
-      .select('id')
-      .single();
-    leadId = lead?.id ?? null;
-    if (leadId) await supabase.from('prospects').update({ lead_id: leadId }).eq('id', prospectId);
-  }
+      });
+    }
 
-  if (leadId) {
-    const outcome = !connected
-      ? 'no_answer'
-      : temperature === 'hot'
-        ? 'interested'
-        : temperature === 'warm'
-          ? 'call_back'
-          : 'not_interested';
-
-    await supabase.from('calls').insert({
-      user_id: prospect.user_id,
-      lead_id: leadId,
-      outcome,
-      notes: note,
-    });
   }
 
   // A run is done once nothing is still in flight.
@@ -305,6 +316,11 @@ Deno.serve(async (req) => {
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', prospect.run_id);
   }
+
+  await saveCallReport(supabase, prospectId, turns.map(turn => ({
+    speaker: turn.role === 'user' ? 'business' as const : 'agent' as const,
+    text: turn.message!.trim(),
+  })), data.metadata?.call_duration_secs);
 
   return json({ ok: true });
 });

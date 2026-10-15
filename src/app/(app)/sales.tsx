@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { PrimaryButton } from '@/components/primary-button';
+import { ModalSheet } from '@/components/modal-sheet';
+import { SalesCallReport } from '@/components/sales-call-report';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
+import { AccentColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { subscribeAnalytics } from '@/lib/analytics-events';
 import { callingWindowNote, withinCallingWindow } from '@/lib/sales/compliance';
 import {
   callNumber,
@@ -35,7 +38,6 @@ import type { Temperature } from '@/types/database';
 // the place-calls function. They are off this screen while single-number
 // calling is the focus.
 
-const RAIL_WIDTH = 400;
 /** How often a live call is checked on. */
 const CALL_POLL_MS = 4000;
 
@@ -156,7 +158,7 @@ function TemperatureChip({ value }: { value: Temperature | null }) {
   );
 }
 
-function CallSheet({ rows }: { rows: SheetRow[] }) {
+function CallSheet({ rows, onReport }: { rows: SheetRow[]; onReport: (id: string) => void }) {
   const theme = useTheme();
 
   return (
@@ -208,6 +210,11 @@ function CallSheet({ rows }: { rows: SheetRow[] }) {
                     ? 'Calling now…'
                     : (row.note ?? row.callError ?? 'No notes.')}
                 </ThemedText>
+                <Pressable accessibilityRole="button" onPress={() => onReport(row.id)}>
+                  <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+                    {row.status === 'dialing' ? 'View call' : 'View report & recording'}
+                  </ThemedText>
+                </Pressable>
               </View>
             </View>
           ))}
@@ -299,6 +306,7 @@ function CallNumberCard({
   const theme = useTheme();
   const [phone, setPhone] = useState('');
   const [pitch, setPitch] = useState(lastPitch);
+  const [questions, setQuestions] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,6 +322,8 @@ function CallNumberCard({
 
   const number = phone.replace(/[\s()-]/g, '');
   const validNumber = /^\+\d{8,15}$/.test(number);
+  const questionList = questions.split('\n').map(q => q.trim()).filter(Boolean);
+  const validQuestions = questionList.length <= 12 && questionList.every(q => q.length <= 300);
   const inWindow = withinCallingWindow();
   const live = prospectId !== null && call?.state !== 'done' && call?.state !== 'failed';
 
@@ -348,7 +358,7 @@ function CallNumberCard({
     setCall(null);
     setProspectId(null);
     try {
-      const started = await callNumber({ phone: number, pitch: pitch.trim(), confirmed });
+      const started = await callNumber({ phone: number, pitch: pitch.trim(), questions: questionList, confirmed });
       setCall({ state: 'ringing', note: null, temperature: null, summary: null, error: null, transcript: [] });
       setProspectId(started.prospect_id);
       setConfirmed(false);
@@ -363,9 +373,9 @@ function CallNumberCard({
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <View style={styles.header}>
-        <ThemedText type="smallBold">Call a number</ThemedText>
+        <ThemedText type="smallBold">AI customer call</ThemedText>
         <ThemedText type="caption" themeColor="textSecondary">
-          Synq&apos;s sales agent calls, talks it through, and writes down how it went.
+          Your agent asks questions, records the conversation, and creates a call report.
         </ThemedText>
       </View>
 
@@ -406,7 +416,16 @@ function CallNumberCard({
         />
       </View>
 
+      <View style={styles.field}>
+        <ThemedText type="caption" themeColor="textSecondary">QUESTIONS TO ASK</ThemedText>
+        <TextField value={questions} onChangeText={setQuestions} multiline editable={!live && !busy}
+          placeholder={'One question per line, for example:\nWhat problem are you trying to solve?\nWhat is your budget?\nWhen would you like to get started?'}
+          style={styles.pitchInput} />
+        <ThemedText type="caption" themeColor="textSecondary">{questionList.length}/12 questions · Leave blank for a general sales conversation.</ThemedText>
+        {!validQuestions ? <ThemedText type="caption" style={{ color: AccentColors.error }}>Use up to 12 questions, each under 300 characters.</ThemedText> : null}
+      </View>
       <View style={[styles.terms, { backgroundColor: theme.surfaceRaised }]}>
+        <ThemedText type="caption" themeColor="textSecondary">The agent discloses recording at the start of the call.</ThemedText>
         {CALL_TERMS.map((term) => (
           <ThemedText key={term} type="caption" themeColor="textSecondary">
             • {term}
@@ -417,7 +436,7 @@ function CallNumberCard({
       <ConfirmCheck
         checked={confirmed}
         onToggle={() => setConfirmed((value) => !value)}
-        label="I have permission to call this number."
+        label="I have permission to make and record this AI call."
       />
 
       {inWindow ? null : (
@@ -429,10 +448,11 @@ function CallNumberCard({
       <PrimaryButton
         title={busy ? 'Starting…' : live ? 'Call in progress' : 'Call now'}
         onPress={start}
-        disabled={busy || live || !validNumber || !pitch.trim() || !confirmed || !inWindow}
+        disabled={busy || live || !validNumber || !pitch.trim() || !validQuestions || !confirmed || !inWindow}
       />
 
       {call ? <CallProgress call={call} /> : null}
+      {prospectId && (call?.state === 'done' || call?.state === 'failed') ? <SalesCallReport key={prospectId} prospectId={prospectId} /> : null}
       {error ? (
         <ThemedText type="small" style={{ color: AccentColors.error }}>
           {error}
@@ -444,8 +464,8 @@ function CallNumberCard({
 
 export default function SalesScreen() {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
-  const wide = width >= WideBreakpoint;
+  const [callSheetOpen, setCallSheetOpen] = useState(false);
+  const [reportId, setReportId] = useState<string | null>(null);
 
   const [dashboard, setDashboard] = useState<SalesDashboard | null>(null);
   const [rows, setRows] = useState<SheetRow[]>([]);
@@ -464,8 +484,30 @@ export default function SalesScreen() {
     setLoading(false);
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
+
+  useEffect(() => subscribeAnalytics(() => refresh()), [refresh]);
+
   useEffect(() => {
-    refresh();
+    let checking = false;
+    const timer = setInterval(async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const recent = await loadRecentCalls();
+        const live = recent.filter(p => p.outreach_status === 'dialing');
+        if (live.length) {
+          await Promise.all(live.map(p => checkCall(p.id)));
+          await refresh();
+        }
+      } catch { /* The call card and report expose retryable errors. */ }
+      finally { checking = false; }
+    }, CALL_POLL_MS);
+    return () => clearInterval(timer);
   }, [refresh]);
 
   const dashboardColumn = (
@@ -473,10 +515,26 @@ export default function SalesScreen() {
       <View style={styles.header}>
         <ThemedText type="pageTitle">Sales</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Type a number. Synq&apos;s AI sales agent calls it, holds the conversation, and writes
-          down how it went.
+          Track your AI calls, results, and follow-up opportunities.
         </ThemedText>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setCallSheetOpen(true)}
+        style={({ hovered, pressed }) => [
+          styles.callAction,
+          {
+            borderColor: hovered || pressed ? AccentColors.primary : theme.border,
+            backgroundColor: hovered || pressed ? theme.surfaceRaised : theme.surface,
+          },
+        ]}
+      >
+        <ThemedText type="smallBold">Start AI customer call</ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">
+          Ask questions → Record the call → Get an AI report
+        </ThemedText>
+      </Pressable>
 
       {loading ? (
         <ActivityIndicator color={AccentColors.primary} />
@@ -500,15 +558,14 @@ export default function SalesScreen() {
           </View>
 
           {rows.length > 0 ? (
-            <CallSheet rows={rows} />
+            <CallSheet rows={rows} onReport={setReportId} />
           ) : (
             <View
               style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
             >
               <ThemedText type="smallBold">No calls yet</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Call a number from the panel {wide ? 'on the right' : 'below'} and the result shows
-                up here.
+                Use Call a number above to start an AI call; the result will show up here.
               </ThemedText>
             </View>
           )}
@@ -517,39 +574,51 @@ export default function SalesScreen() {
     </View>
   );
 
-  const callCard = <CallNumberCard lastPitch={lastPitch} onChanged={refresh} />;
-
-  if (!wide) {
-    return (
-      <ScrollView contentContainerStyle={styles.narrow}>
-        {dashboardColumn}
-        {callCard}
-      </ScrollView>
-    );
-  }
-
   return (
-    <View style={styles.split}>
-      <ScrollView contentContainerStyle={styles.mainColumn}>{dashboardColumn}</ScrollView>
-      <ScrollView
-        contentContainerStyle={styles.rail}
-        style={[styles.railOuter, { borderLeftColor: theme.border }]}
+    <>
+      <ScrollView contentContainerStyle={styles.narrow}>{dashboardColumn}</ScrollView>
+      <ModalSheet
+        visible={callSheetOpen}
+        onClose={() => setCallSheetOpen(false)}
+        title="AI customer call"
+        description="Set the offer and questions for your sales agent."
       >
-        {callCard}
-      </ScrollView>
-    </View>
+        <ScrollView style={{ maxHeight: 560 }}>
+        <CallNumberCard
+          lastPitch={lastPitch}
+          onChanged={refresh}
+        />
+        </ScrollView>
+      </ModalSheet>
+      <ModalSheet visible={reportId !== null} onClose={() => setReportId(null)} title="Call report & recording">
+        <ScrollView style={{ maxHeight: 560 }}>
+          {reportId ? <SalesCallReport key={reportId} prospectId={reportId} /> : null}
+        </ScrollView>
+      </ModalSheet>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  split: { flex: 1, flexDirection: 'row' },
-  mainColumn: { padding: Spacing.five, gap: Spacing.four },
-  railOuter: { width: RAIL_WIDTH, borderLeftWidth: 1 },
-  rail: { padding: Spacing.four, gap: Spacing.three },
-  narrow: { padding: Spacing.four, gap: Spacing.four },
+  narrow: {
+    padding: Spacing.five,
+    gap: Spacing.four,
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
+  },
 
   header: { gap: Spacing.one },
   stackWide: { gap: Spacing.four },
+  callAction: {
+    alignSelf: 'flex-start',
+    minWidth: 210,
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Radius.control,
+  },
   field: { gap: Spacing.one + 2 },
 
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },

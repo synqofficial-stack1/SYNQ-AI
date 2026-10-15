@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { notifyAnalyticsChanged } from '@/lib/analytics-events';
 
 // Video generation from the client's side. The provider, the key and the file
 // download all stay on the server; this only starts jobs, asks how they are
@@ -56,11 +57,16 @@ export function startVideo(input: {
     prompt: input.prompt,
     aspect_ratio: input.aspectRatio ?? '9:16',
     duration_seconds: input.durationSeconds ?? 4,
+  }).then((result) => {
+    notifyAnalyticsChanged();
+    return result;
   });
 }
 
-export function checkVideo(videoId: string): Promise<{ video: GeneratedVideo; note?: string }> {
-  return invoke<{ video: GeneratedVideo; note?: string }>({ action: 'check', video_id: videoId });
+export async function checkVideo(videoId: string): Promise<{ video: GeneratedVideo; note?: string }> {
+  const result = await invoke<{ video: GeneratedVideo; note?: string }>({ action: 'check', video_id: videoId });
+  if (result.video.status === 'ready' || result.video.status === 'failed') notifyAnalyticsChanged();
+  return result;
 }
 
 export async function listVideos(conversationId: string): Promise<GeneratedVideo[]> {

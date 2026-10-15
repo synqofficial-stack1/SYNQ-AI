@@ -1,37 +1,46 @@
-import { Platform, StyleSheet, View, type ViewProps } from 'react-native';
+import { StyleSheet, Text, View, type ViewProps } from 'react-native';
 
-import { Spacing } from '@/constants/theme';
-
-// Real frosted glass needs backdrop-filter, which only exists on web. Native
-// keeps the translucent fill and border, which still reads as glass against a
-// dark background — it just doesn't blur whatever sits behind it.
-const frostedOnWeb = Platform.select({
-  web: { backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' },
-  default: null,
-}) as ViewProps['style'];
+// The column a sign-in form lives in.
+//
+// There is deliberately no panel drawn around it: the glass is in the fields
+// and the buttons themselves, so the form reads as floating in the room rather
+// than as a card pasted over a photograph. All this does is hold the column to
+// a readable width and keep the rhythm between rows.
 
 export function AuthCard({ style, ...props }: ViewProps) {
-  return <View {...props} style={[styles.card, frostedOnWeb, style]} />;
+  return <View {...props} style={[styles.column, style]} />;
+}
+
+/** The title on the screens that need one. The login screen does not: the logo is the title. */
+export function AuthHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <View style={styles.heading}>
+      <Text style={styles.title}>{title}</Text>
+      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  card: {
+  column: {
     width: '100%',
-    // Holds the form to a readable column and leaves the rest of the screen
-    // free for background artwork.
-    maxWidth: 420,
+    maxWidth: 440,
     alignSelf: 'center',
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.five,
-    paddingVertical: Spacing.six,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 24 },
-    shadowOpacity: 0.45,
-    shadowRadius: 48,
-    elevation: 12,
+    gap: 16,
+  },
+  heading: { gap: 8, alignItems: 'center', marginBottom: 4 },
+  title: {
+    color: '#ffffff',
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  subtitle: {
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
   },
 });

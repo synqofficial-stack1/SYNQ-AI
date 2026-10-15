@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { notifyAnalyticsChanged } from '@/lib/analytics-events';
 import type { Task } from '@/types/database';
 
 export const TASK_TYPES = [
@@ -58,6 +59,8 @@ export async function runTask(input: RunTaskInput): Promise<RunTaskResult> {
   });
 
   if (error) {
+    // The server may have recorded a failed run before returning the error.
+    notifyAnalyticsChanged();
     // supabase-js reports a non-2xx as a generic "Edge Function returned a
     // non-2xx status code" and tucks the real body away on `context`. Dig it out,
     // otherwise the user sees nothing useful.
@@ -80,7 +83,11 @@ export async function runTask(input: RunTaskInput): Promise<RunTaskResult> {
     throw new RunTaskError(error.message);
   }
 
-  if (!data?.output) throw new RunTaskError('The agent returned nothing. Please try again.');
+  if (!data?.output) {
+    notifyAnalyticsChanged();
+    throw new RunTaskError('The agent returned nothing. Please try again.');
+  }
+  notifyAnalyticsChanged();
   return { taskId: data.task_id, output: data.output };
 }
 

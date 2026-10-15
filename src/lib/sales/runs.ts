@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
-import type { Prospect, SalesRun, Temperature } from '@/types/database';
+import { notifyAnalyticsChanged } from '@/lib/analytics-events';
+import type { Prospect, SalesCallReport, SalesRun, Temperature } from '@/types/database';
 
 // A run is one instruction: "find 20 salons in Hyderabad and call them about
 // our website service." It moves through five states and stops dead at the
@@ -64,6 +65,7 @@ export async function createRun(input: {
     .single();
 
   if (error) throw new Error(error.message);
+  notifyAnalyticsChanged();
   return data as SalesRun;
 }
 
@@ -75,16 +77,18 @@ export type DiscoveryOutcome = {
 };
 
 /** Searches Google Maps and fills the run with real businesses. */
-export function discoverForRun(
+export async function discoverForRun(
   runId: string,
   params: { industry?: string | null; location?: string | null; limit?: number } = {}
 ): Promise<DiscoveryOutcome> {
-  return invoke<DiscoveryOutcome>('discover-prospects', {
+  const outcome = await invoke<DiscoveryOutcome>('discover-prospects', {
     run_id: runId,
     industry: params.industry ?? undefined,
     location: params.location ?? undefined,
     limit: params.limit,
   });
+  notifyAnalyticsChanged();
+  return outcome;
 }
 
 /**
@@ -106,6 +110,9 @@ export function startCalling(runId: string): Promise<CallingOutcome> {
     run_id: runId,
     // The server enforces the 9am–9pm window; it needs to know where "local" is.
     tz_offset_minutes: -new Date().getTimezoneOffset(),
+  }).then((outcome) => {
+    notifyAnalyticsChanged();
+    return outcome;
   });
 }
 
@@ -129,14 +136,19 @@ export type CallStatus = {
 export function callNumber(input: {
   phone: string;
   pitch: string;
+  questions?: string[];
   confirmed: boolean;
 }): Promise<{ prospect_id: string; run_id: string }> {
-  return invoke('call-number', {
+  return invoke<{ prospect_id: string; run_id: string }>('call-number', {
     action: 'start',
     phone: input.phone,
     pitch: input.pitch,
+    questions: input.questions ?? [],
     confirmed: input.confirmed,
     tz_offset_minutes: -new Date().getTimezoneOffset(),
+  }).then((result) => {
+    notifyAnalyticsChanged();
+    return result;
   });
 }
 
@@ -150,7 +162,7 @@ export async function checkCall(prospectId: string): Promise<CallStatus> {
     action: 'status',
     prospect_id: prospectId,
   });
-  return {
+  const result: CallStatus = {
     state: status.state ?? 'ringing',
     note: status.note ?? null,
     temperature: status.temperature ?? null,
@@ -158,6 +170,27 @@ export async function checkCall(prospectId: string): Promise<CallStatus> {
     error: status.error ?? null,
     transcript: status.transcript ?? [],
   };
+  if (result.state === 'done' || result.state === 'failed') notifyAnalyticsChanged();
+  return result;
+}
+
+export type CallReportDetails = {
+  report: SalesCallReport | null;
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  error: string | null;
+  transcript: CallStatus['transcript'];
+  duration: number | null;
+  recording_error: string | null;
+  call_error: string | null;
+};
+
+export function loadCallReport(prospectId: string, retry = false): Promise<CallReportDetails> {
+  return invoke<CallReportDetails>('call-report', { action: retry ? 'retry' : 'get', prospect_id: prospectId });
+}
+
+export async function callRecordingUrl(prospectId: string): Promise<string> {
+  const result = await invoke<{ url: string }>('call-report', { action: 'recording', prospect_id: prospectId });
+  return result.url;
 }
 
 /** Every call that has been attempted, newest first, across all runs. */
