@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { AIWorkspace } from '@/components/ai-workspace';
+import { ChatPanel } from '@/components/chat-panel';
 import { ModalSheet } from '@/components/modal-sheet';
 import { Sidebar } from '@/components/sidebar';
 import { TextField } from '@/components/text-field';
@@ -61,6 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -86,7 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }}
       onOpenAssistant={() => {
         setDrawerOpen(false);
-        openAI();
+        setAssistantOpen(true);
       }}
     />
   );
@@ -149,6 +151,22 @@ export function AppShell({ children }: { children: ReactNode }) {
           <View style={styles.drawerPanel}>{sidebar}</View>
         </View>
       </Modal>
+
+      <ModalSheet
+        visible={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        title="Ask Synq"
+        description="Reads your real workspace. It can find businesses to call, but never places a call itself."
+        align="top"
+      >
+        <ChatPanel
+          kind="assistant"
+          placeholder="Ask about your workspace, or tell it what to do…"
+          emptyHint="Ask about your contacts, calls or follow-ups. It can also find local businesses to call and build the list for you to approve."
+          suggestions={['What needs my attention?', 'Where should I start?']}
+          height={340}
+        />
+      </ModalSheet>
 
       <ModalSheet
         visible={searchOpen}

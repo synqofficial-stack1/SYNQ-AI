@@ -586,7 +586,10 @@ export default function SalesScreen() {
         <ScrollView style={{ maxHeight: 560 }}>
         <CallNumberCard
           lastPitch={lastPitch}
-          onChanged={refresh}
+          onChanged={() => {
+            refresh();
+            setCallSheetOpen(false);
+          }}
         />
         </ScrollView>
       </ModalSheet>
