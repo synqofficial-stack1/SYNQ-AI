@@ -11,6 +11,7 @@ import {
 import { DepartmentActivityChart } from '@/components/department-activity-chart';
 import { ModalSheet } from '@/components/modal-sheet';
 import { SalesCallReport } from '@/components/sales-call-report';
+import { VapiSalesAgent } from '@/components/vapi-sales-agent';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -233,6 +234,8 @@ export default function SalesScreen() {
           Track your AI calls, results, and follow-up opportunities.
         </ThemedText>
       </View>
+
+      <VapiSalesAgent />
 
       <Pressable
         accessibilityRole="button"

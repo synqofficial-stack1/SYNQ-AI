@@ -24,3 +24,8 @@ verify_jwt = true
 
 [functions.generate-image]
 verify_jwt = true
+
+# Vapi cannot send a Supabase user JWT. The function validates its own
+# Authorization bearer credential before processing any webhook payload.
+[functions.vapi-call-result]
+verify_jwt = false
