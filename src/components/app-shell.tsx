@@ -3,13 +3,12 @@ import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { AIWorkspace } from '@/components/ai-workspace';
-import { ChatPanel } from '@/components/chat-panel';
 import { ModalSheet } from '@/components/modal-sheet';
 import { Sidebar } from '@/components/sidebar';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { TopBar } from '@/components/top-bar';
-import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
+import { Radius, Spacing, WideBreakpoint } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
@@ -62,7 +61,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -88,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }}
       onOpenAssistant={() => {
         setDrawerOpen(false);
-        setAssistantOpen(true);
+        openAI();
       }}
     />
   );
@@ -115,11 +113,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         <View style={styles.content}>
           {aiOpen ? <AIWorkspace department={department} onClose={closeAI} onDepartment={changeDepartment} onOpenCalls={() => router.push('/sales?ai=0' as Parameters<typeof router.push>[0])} /> : null}
           <View style={{ flex: 1, minHeight: 0, display: aiOpen ? 'none' : 'flex' }}>
-            <View style={styles.aiActionRow}>
-              <Pressable accessibilityRole="button" onPress={openAI} style={styles.aiAction}>
-                <ThemedText type="smallBold" style={{ color: AccentColors.primary }}>✦ Open AI mode</ThemedText>
-              </Pressable>
-            </View>
             <View style={{ flex: 1, minHeight: 0 }}>{children}</View>
           </View>
           {/* Only mounted while the menu is open. Wrapping the page itself in a
@@ -151,22 +144,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <View style={styles.drawerPanel}>{sidebar}</View>
         </View>
       </Modal>
-
-      <ModalSheet
-        visible={assistantOpen}
-        onClose={() => setAssistantOpen(false)}
-        title="Ask Synq"
-        description="Reads your real workspace. It can find businesses to call, but never places a call itself."
-        align="top"
-      >
-        <ChatPanel
-          kind="assistant"
-          placeholder="Ask about your workspace, or tell it what to do…"
-          emptyHint="Ask about your contacts, calls or follow-ups. It can also find local businesses to call and build the list for you to approve."
-          suggestions={['What needs my attention?', 'Where should I start?']}
-          height={340}
-        />
-      </ModalSheet>
 
       <ModalSheet
         visible={searchOpen}
@@ -227,8 +204,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, flexDirection: 'row' },
   main: { flex: 1 },
   content: { flex: 1, minHeight: 0 },
-  aiActionRow: { alignItems: 'flex-end', paddingHorizontal: Spacing.five, paddingTop: Spacing.three, paddingBottom: Spacing.one },
-  aiAction: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Radius.control, borderWidth: 1, borderColor: AccentColors.primary },
   drawerBackdrop: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0, 0, 0, 0.55)' },
   drawerPanel: { height: '100%' },
   resultList: { maxHeight: 260 },

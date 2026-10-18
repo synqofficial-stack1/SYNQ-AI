@@ -58,7 +58,7 @@ export function ChatPanel({
    * the surrounding screen is showing, and the screen has no other way to know.
    */
   onReply?: () => void;
-  /** Shows the Veo generation action, which only Marketing wants today. */
+  /** Shows the video generation action, which only Marketing wants today. */
   enableVideo?: boolean;
   height?: number;
   /**

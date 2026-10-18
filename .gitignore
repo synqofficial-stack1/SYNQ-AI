@@ -65,3 +65,10 @@ client_secret*.json
 
 # Generated Supabase CLI state
 supabase/.temp/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
