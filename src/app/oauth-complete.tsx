@@ -1,16 +1,15 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { OAUTH_CHANNEL, type OAuthMessage } from '@/lib/social';
 
-// Where the Instagram and X login popup lands once the platform is done with
-// it, by way of the social-auth function. It never sees a token, only which
-// platform and whether it worked. Its one job is to tell the app window and
-// close itself.
+// Where social-auth sends the browser after the provider callback. It never
+// sees a token, only which platform and whether it worked. Popup flows notify
+// their opener; YouTube's full-page web flow returns to Integrations.
 //
 // It sits outside the (app) group so the session guard cannot bounce it to the
 // login screen mid-handshake.
@@ -21,9 +20,15 @@ export default function OAuthCompleteScreen() {
   const platform = params.platform ? String(params.platform) : '';
   const connected = params.status === 'connected';
   const message = params.message ? String(params.message) : '';
+  const isYouTubeFullPage = Platform.OS === 'web' && typeof window !== 'undefined' && platform === 'youtube' && !window.opener;
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !platform) return;
+
+    if (isYouTubeFullPage) {
+      const timer = setTimeout(() => router.replace('/plugins'), 1800);
+      return () => clearTimeout(timer);
+    }
 
     const payload: OAuthMessage = {
       platform,
@@ -38,16 +43,25 @@ export default function OAuthCompleteScreen() {
     // one was reached some other way, the text below says what to do instead.
     const timer = setTimeout(() => window.close(), 600);
     return () => clearTimeout(timer);
-  }, [connected, message, platform]);
+  }, [connected, isYouTubeFullPage, message, platform]);
 
   return (
     <View style={[styles.page, { backgroundColor: theme.background }]}>
       <ThemedText type="sectionTitle">{connected ? 'Connected' : 'Not connected'}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.text}>
-        {connected
-          ? 'You can close this window and go back to Synq.'
-          : message || 'Something went wrong. Close this window and try again.'}
+        {isYouTubeFullPage
+          ? connected
+            ? 'Your YouTube account is connected. Returning to Integrations…'
+            : message || 'YouTube could not be connected. Returning to Integrations…'
+          : connected
+            ? 'You can close this window and go back to Synq.'
+            : message || 'Something went wrong. Close this window and try again.'}
       </ThemedText>
+      {isYouTubeFullPage ? (
+        <Pressable accessibilityRole="button" onPress={() => router.replace('/plugins')}>
+          <ThemedText type="smallBold">Back to Integrations</ThemedText>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

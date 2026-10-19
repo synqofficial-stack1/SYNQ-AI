@@ -19,6 +19,7 @@
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { decryptToken, encryptToken } from '../_shared/social-token-crypto.ts';
+import { canPublishYouTube, confirmedYouTubeVideoId, refreshYouTubeAccessToken, YouTubeRefreshError } from '../_shared/youtube-oauth.ts';
 
 type Platform = 'youtube' | 'instagram' | 'x' | 'linkedin';
 const PLATFORMS: Platform[] = ['youtube', 'instagram', 'x', 'linkedin'];
@@ -37,6 +38,7 @@ const IG_MAX_CAPTION = 2200;
 const LINKEDIN_MAX_TEXT = 3000;
 const YOUTUBE_MAX_DESCRIPTION = 5000;
 const BUCKET = 'generated-videos';
+const UPLOAD_BUCKET = 'marketing-uploads';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -53,12 +55,17 @@ type Connection = {
   access_token: string;
   refresh_token: string | null;
   expires_at: string | null;
+  publishing_enabled?: boolean;
 };
 
 type Post = {
   id: string;
   user_id: string;
-  video_id: string;
+  video_id: string | null;
+  media_id: string | null;
+  title: string;
+  description: string;
+  youtube_visibility: 'public' | 'unlisted' | 'private';
   platform: Platform;
   caption: string;
   status: string;
@@ -277,30 +284,22 @@ async function youtubeToken(db: SupabaseClient, conn: Connection): Promise<strin
   const clientSecret = Deno.env.get('YOUTUBE_GOOGLE_CONSOLE_CLIENT_SECRET') ?? Deno.env.get('YOUTUBE_CLIENT_SECRET');
   if (!clientId || !clientSecret) throw new PermanentError('YouTube OAuth is not configured on the server.');
 
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: conn.refresh_token,
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
-  });
-  const body = await readJson(response);
-  if (!response.ok || !body?.access_token) {
-    if (response.status === 400 || response.status === 401) {
+  let refreshed: { accessToken: string; expiresIn: number | null };
+  try {
+    refreshed = await refreshYouTubeAccessToken(conn.refresh_token, clientId, clientSecret);
+  } catch (error) {
+    if (error instanceof YouTubeRefreshError && error.permanentlyRejected) {
       await db.from('social_connections').delete().eq('id', conn.id);
-      throw new PermanentError('Your YouTube login has expired. Connect YouTube again.');
+      throw new PermanentError('Your YouTube authorization was revoked or expired. Connect YouTube again.');
     }
     throw new Error('Google could not refresh the YouTube login. Try again shortly.');
   }
 
   await db.from('social_connections').update({
-    access_token: await encryptToken(body.access_token),
-    expires_at: body.expires_in ? new Date(Date.now() + Number(body.expires_in) * 1000).toISOString() : null,
+    access_token: await encryptToken(refreshed.accessToken),
+    expires_at: refreshed.expiresIn ? new Date(Date.now() + refreshed.expiresIn * 1000).toISOString() : null,
   }).eq('id', conn.id);
-  return body.access_token;
+  return refreshed.accessToken;
 }
 
 async function publishLinkedIn(db: SupabaseClient, post: Post, conn: Connection, token: string) {
@@ -321,7 +320,7 @@ async function publishLinkedIn(db: SupabaseClient, post: Post, conn: Connection,
         targetEntities: [],
         thirdPartyDistributionChannels: [],
       },
-      content: { media: { title: 'Synq marketing video', id: post.provider_ref } },
+      content: { media: { title: post.title || 'Synq marketing video', id: post.provider_ref } },
       lifecycleState: 'PUBLISHED',
       isReshareDisabledByAuthor: false,
     }),
@@ -349,7 +348,7 @@ async function publishLinkedIn(db: SupabaseClient, post: Post, conn: Connection,
 
 async function publishYouTube(db: SupabaseClient, post: Post, conn: Connection, token: string, file: Blob) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const title = (post.caption.trim().split(/\r?\n/)[0] || 'New video from Synq').slice(0, 100);
+  const title = (post.title.trim() || post.caption.trim().split(/\r?\n/)[0] || 'New video from Synq').slice(0, 100);
   const init = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
     method: 'POST',
     headers: {
@@ -359,8 +358,8 @@ async function publishYouTube(db: SupabaseClient, post: Post, conn: Connection, 
       'X-Upload-Content-Length': String(bytes.byteLength),
     },
     body: JSON.stringify({
-      snippet: { title, description: post.caption, categoryId: '22' },
-      status: { privacyStatus: 'public', selfDeclaredMadeForKids: false },
+      snippet: { title, description: post.description.trim() || post.caption, categoryId: '22' },
+      status: { privacyStatus: post.youtube_visibility || 'public', selfDeclaredMadeForKids: false },
     }),
   });
   if (!init.ok) return await markFailed(db, post.id, `YouTube refused the upload setup: ${platformError(await readJson(init), `HTTP ${init.status}`)}`);
@@ -373,8 +372,8 @@ async function publishYouTube(db: SupabaseClient, post: Post, conn: Connection, 
     body: bytes,
   });
   const body = await readJson(uploaded);
-  const videoId = body?.id;
-  if (!uploaded.ok || !videoId) {
+  const videoId = confirmedYouTubeVideoId(uploaded.ok, body);
+  if (!videoId) {
     return await markFailed(db, post.id, `YouTube could not finish the upload: ${platformError(body, `HTTP ${uploaded.status}`)}`);
   }
   const { data } = await db.from('social_posts').update({
@@ -405,7 +404,7 @@ Deno.serve(async (req) => {
   const user = userData?.user;
   if (userError || !user) return json({ error: 'You are signed out. Log in and try again.' }, 401);
 
-  let body: { action?: string; platform?: string; video_id?: string; caption?: string; post_id?: string };
+  let body: { action?: string; platform?: string; video_id?: string; media_id?: string; draft_id?: string; title?: string; description?: string; youtube_visibility?: 'public' | 'unlisted' | 'private'; caption?: string; post_id?: string };
   try {
     body = await req.json();
   } catch {
@@ -427,7 +426,10 @@ Deno.serve(async (req) => {
     const platform = body.platform as Platform;
     if (!PLATFORMS.includes(platform)) return json({ error: 'Unknown platform.' }, 400);
 
-    const caption = String(body.caption ?? '').trim();
+    let caption = String(body.caption ?? '').trim();
+    let title = String(body.title ?? '').trim().slice(0, 100);
+    let description = String(body.description ?? '').slice(0, 5000);
+    let youtubeVisibility = body.youtube_visibility ?? 'public';
     if (platform === 'x' && caption.length > X_MAX_TEXT) {
       return json({ error: `X allows ${X_MAX_TEXT} characters and this caption has ${caption.length}.` }, 400);
     }
@@ -441,16 +443,64 @@ Deno.serve(async (req) => {
       return json({ error: `YouTube descriptions allow ${YOUTUBE_MAX_DESCRIPTION} characters and this caption has ${caption.length}.` }, 400);
     }
 
-    // RLS: only the caller's own video can be found at all.
-    const { data: video } = await userClient
-      .from('videos')
-      .select('id, status, storage_path')
-      .eq('id', String(body.video_id ?? ''))
-      .maybeSingle();
-    if (!video) return json({ error: 'That video does not exist.' }, 404);
-    if (video.status !== 'ready' || !video.storage_path) {
-      return json({ error: 'That video has not finished generating yet.' }, 409);
+    // Generated videos remain supported. Uploaded videos are looked up through
+    // the caller's RLS session, never by trusting a client supplied owner id.
+    let videoId: string | null = null;
+    let mediaId: string | null = null;
+    let storagePath: string | null = null;
+    let storageBucket = BUCKET;
+    if (body.media_id) {
+      const { data: media } = await userClient.from('marketing_media')
+        .select('id, status, storage_path, content_type, size_bytes, duration_seconds')
+        .eq('id', body.media_id).maybeSingle();
+      if (!media) return json({ error: 'That uploaded video does not exist.' }, 404);
+      if (media.status !== 'uploaded' || media.content_type !== 'video/mp4' || Number(media.size_bytes) > 104857600) {
+        return json({ error: 'That uploaded video is not ready or is not a supported MP4.' }, 409);
+      }
+      const duration = Number(media.duration_seconds);
+      if (!Number.isFinite(duration) || duration <= 0) return json({ error: 'Wait for the video duration to be read before publishing.' }, 409);
+      const maximum = platform === 'x' ? 140 : platform === 'linkedin' ? 1800 : 900;
+      if ((platform === 'instagram' || platform === 'linkedin') && duration < 3) return json({ error: `${LABEL[platform]} videos must be at least 3 seconds.` }, 400);
+      if (duration > maximum) return json({ error: `This video exceeds ${LABEL[platform]}'s supported publishing duration for this account/API flow.` }, 400);
+      mediaId = media.id;
+      storagePath = media.storage_path;
+      storageBucket = UPLOAD_BUCKET;
+    } else {
+      const { data: video } = await userClient.from('videos')
+        .select('id, status, storage_path').eq('id', String(body.video_id ?? '')).maybeSingle();
+      if (!video) return json({ error: 'That video does not exist.' }, 404);
+      if (video.status !== 'ready' || !video.storage_path) {
+        return json({ error: 'That video has not finished generating yet.' }, 409);
+      }
+      videoId = video.id;
+      storagePath = video.storage_path;
     }
+    if (!storagePath) return json({ error: 'The video file is unavailable.' }, 409);
+
+    let retryPostId: string | null = null;
+    if (body.draft_id) {
+      const { data: draft } = await userClient.from('marketing_post_drafts').select('id, media_id, platforms, status, title, description, caption, hashtags, platform_content, youtube_visibility')
+        .eq('id', body.draft_id).maybeSingle();
+      if (!draft || !mediaId || draft.media_id !== mediaId || !draft.platforms.includes(platform) || draft.status !== 'ready_for_review') {
+        return json({ error: 'Save this draft for review with this destination before publishing.' }, 409);
+      }
+      const { data: prior } = await db.from('social_posts').select('*').eq('draft_id', draft.id).eq('platform', platform).maybeSingle();
+      if (prior && prior.status !== 'failed') return json({ post: prior });
+      if (prior?.status === 'failed') {
+        if (prior.provider_post_id) return json({ error: 'This destination already has a published result and cannot be retried.' }, 409);
+        retryPostId = prior.id;
+      }
+      title = String(draft.title ?? '').trim().slice(0, 100);
+      description = String(draft.description ?? '').slice(0, 5000);
+      youtubeVisibility = draft.youtube_visibility;
+      const platformContent = draft.platform_content && typeof draft.platform_content === 'object'
+        ? String(draft.platform_content[platform] ?? draft.caption ?? '') : String(draft.caption ?? '');
+      caption = [platformContent, String(draft.hashtags ?? '').trim()].filter(Boolean).join('\n\n').trim();
+    }
+    if (platform === 'x' && caption.length > X_MAX_TEXT) return json({ error: `X allows ${X_MAX_TEXT} characters and this caption has ${caption.length}.` }, 400);
+    if (platform === 'instagram' && caption.length > IG_MAX_CAPTION) return json({ error: `Instagram allows ${IG_MAX_CAPTION} characters and this caption has ${caption.length}.` }, 400);
+    if (platform === 'linkedin' && caption.length > LINKEDIN_MAX_TEXT) return json({ error: `LinkedIn allows ${LINKEDIN_MAX_TEXT} characters and this caption has ${caption.length}.` }, 400);
+    if (platform === 'youtube' && caption.length > YOUTUBE_MAX_DESCRIPTION) return json({ error: `YouTube descriptions allow ${YOUTUBE_MAX_DESCRIPTION} characters and this caption has ${caption.length}.` }, 400);
 
     const { data: storedConnection } = await db
       .from('social_connections')
@@ -462,12 +512,16 @@ Deno.serve(async (req) => {
     if (!conn) {
       return json({ error: `Connect ${LABEL[platform]} first.`, needs_connection: true }, 409);
     }
+    if (platform === 'youtube' && !canPublishYouTube(storedConnection, user.id)) {
+      return json({ error: 'YouTube is connected but disabled as a publishing destination. Enable it in Integrations before publishing.' }, 409);
+    }
 
-    const { data: post, error: insertError } = await db
-      .from('social_posts')
-      .insert({ user_id: user.id, video_id: video.id, platform, caption, status: 'pending' })
-      .select('*')
-      .single();
+    const postQuery = retryPostId
+      ? db.from('social_posts').update({ status: 'pending', title,
+        description, youtube_visibility: youtubeVisibility, caption, provider_ref: null, error: null }).eq('id', retryPostId)
+      : db.from('social_posts').insert({ user_id: user.id, video_id: videoId, media_id: mediaId, draft_id: body.draft_id ?? null,
+        title, description, youtube_visibility: youtubeVisibility, platform, caption, status: 'pending' });
+    const { data: post, error: insertError } = await postQuery.select('*').single();
     if (insertError || !post) return json({ error: insertError?.message ?? 'Could not record the post.' }, 500);
 
     const fail = async (reason: string) =>
@@ -480,8 +534,8 @@ Deno.serve(async (req) => {
         // Instagram downloads the file itself, so it needs a URL it can reach. A
         // signed link keeps the bucket private while giving Meta an hour.
         const { data: signed, error: signError } = await db.storage
-          .from(BUCKET)
-          .createSignedUrl(video.storage_path, 3600);
+          .from(storageBucket)
+          .createSignedUrl(storagePath, 3600);
         if (signError || !signed?.signedUrl) return await fail('Could not prepare the video for Instagram.');
 
         const res = await fetch(`${IG_GRAPH}/${conn.account_id}/media`, {
@@ -511,7 +565,7 @@ Deno.serve(async (req) => {
       // X
       const token = await xToken(db, conn);
 
-      const { data: file, error: downloadError } = await db.storage.from(BUCKET).download(video.storage_path);
+      const { data: file, error: downloadError } = await db.storage.from(storageBucket).download(storagePath);
       if (downloadError || !file) return await fail('Could not read the video file.');
       const bytes = new Uint8Array(await file.arrayBuffer());
 
@@ -572,7 +626,7 @@ Deno.serve(async (req) => {
 
       if (platform === 'youtube') {
         const token = await youtubeToken(db, conn);
-        const { data: file, error: downloadError } = await db.storage.from(BUCKET).download(video.storage_path);
+        const { data: file, error: downloadError } = await db.storage.from(storageBucket).download(storagePath);
         if (downloadError || !file) return await fail('Could not read the video file.');
         const result = await publishYouTube(db, post, conn, token, file);
         if (!result || result.status === 'failed') return json({ post: result ?? post });
@@ -583,8 +637,8 @@ Deno.serve(async (req) => {
       // URL is one-time and short-lived; the resulting video URN is polled
       // before creating the public post.
       const { data: file, error: downloadError } = await db.storage
-        .from(BUCKET)
-        .download(video.storage_path);
+        .from(storageBucket)
+        .download(storagePath);
       if (downloadError || !file) return await fail('Could not read the video file.');
       const bytes = new Uint8Array(await file.arrayBuffer());
       const headers = {

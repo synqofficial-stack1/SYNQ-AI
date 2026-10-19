@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { PrimaryButton } from '@/components/primary-button';
@@ -10,14 +10,16 @@ import {
   connectPlatform,
   disconnectPlatform,
   loadConnections,
+  setPublishingEnabled,
   SOCIAL_LABELS,
   SocialError,
   type Connection,
   type SocialPlatform,
 } from '@/lib/social';
+import { SUPABASE_URL } from '@/lib/supabase';
 
 const PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'x', 'linkedin'];
-const CALLBACK_URI = 'https://jjdrlgwpvxyxeruyygli.supabase.co/functions/v1/social-auth';
+const CALLBACK_URI = new URL('/functions/v1/social-auth', SUPABASE_URL).toString();
 
 const SETUP: Record<SocialPlatform, { credentials: string[]; permissions: string; steps: string[]; providerUrl: string }> = {
   youtube: {
@@ -122,6 +124,20 @@ export default function PluginScreen() {
     }
   }
 
+  async function togglePublishing(enabled: boolean) {
+    if (!platform) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await setPublishingEnabled(platform, enabled);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not update the publishing destination.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const setup = platform ? SETUP[platform] : null;
   const missing = connection?.configuration_missing ?? [];
 
@@ -166,6 +182,15 @@ export default function PluginScreen() {
             <ThemedText type="small" style={{ color: AccentColors.success }}>Connected and provider-verified</ThemedText>
             <ThemedText type="small">Account: {connection.account_name || `your ${label} account`}</ThemedText>
             <ThemedText type="caption" themeColor="textSecondary">Synq verified this account with {label}. Each public post still requires your confirmation.</ThemedText>
+            {platform === 'youtube' ? (
+              <View style={styles.destinationRow}>
+                <View style={styles.destinationCopy}>
+                  <ThemedText type="smallBold">Use YouTube as a publishing destination</ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">{connection.publishing_enabled ? 'Enabled' : 'Disabled'}</ThemedText>
+                </View>
+                <Switch accessibilityLabel="Enable YouTube publishing destination" value={connection.publishing_enabled} onValueChange={(enabled) => void togglePublishing(enabled)} disabled={busy} trackColor={{ false: theme.border, true: AccentColors.primary }} />
+              </View>
+            ) : null}
             <PrimaryButton title={busy ? 'Disconnecting…' : `Disconnect ${label}`} onPress={disconnect} disabled={busy} />
           </>
         ) : connection.needs_reconnect ? (
@@ -228,5 +253,7 @@ const styles = StyleSheet.create({
   stepNumber: { width: 24, height: 24, textAlign: 'center', textAlignVertical: 'center', borderRadius: Radius.pill, overflow: 'hidden', backgroundColor: 'rgba(232, 197, 71, 0.14)', color: AccentColors.primaryLight },
   stepCopy: { flex: 1 },
   callback: { padding: Spacing.two, borderRadius: Radius.control, overflow: 'hidden' },
+  destinationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.three },
+  destinationCopy: { flex: 1, gap: Spacing.one },
   marketingLink: { alignSelf: 'flex-start', paddingVertical: Spacing.two, paddingHorizontal: Spacing.three },
 });

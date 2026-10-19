@@ -34,6 +34,8 @@ Use this exact callback URL in each provider's app settings:
 - **LinkedIn:** enable OpenID Connect sign-in and member sharing (`w_member_social`); LinkedIn must grant the app access to the relevant sharing product and permissions.
 - **YouTube:** enable YouTube Data API v3, create a Google OAuth Web client, and request the YouTube read-only and upload scopes. Add the callback URI above as an authorized redirect URI. Google may require consent-screen testing users or app verification before broader use.
 
+On web, **Connect YouTube** redirects the current tab to Google's authorization page and returns through `/oauth-complete` to Integrations. This YouTube authorization is separate from Synq's Google sign-in; signing in with Gmail does not grant YouTube upload access. Native apps keep the platform authentication session flow.
+
 For a production web release, include the app's HTTPS origin in `SOCIAL_ALLOWED_ORIGINS` and in the provider's OAuth redirect/origin settings where required.
 
 ## Data and privacy

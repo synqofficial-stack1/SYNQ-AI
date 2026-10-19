@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { DepartmentActivityChart } from '@/components/department-activity-chart';
+import { MarketingPublisher } from '@/components/marketing-publisher';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -30,6 +31,7 @@ export default function MarketingScreen() {
       </Pressable>
 
       <DepartmentActivityChart department="marketing" />
+      <MarketingPublisher />
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <ThemedText type="smallBold">Marketing activity</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
