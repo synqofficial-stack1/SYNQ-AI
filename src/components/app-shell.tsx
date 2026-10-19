@@ -43,12 +43,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ ai?: string; department?: string }>();
   const aiOpen = params.ai === '1' || pathname === '/ai-mode';
-  const department = pathname === '/marketing' || (pathname === '/ai-mode' && params.department === 'marketing') ? 'marketing'
-    : ['/sales', '/import-leads', '/cold-call', '/follow-ups', '/ai-mode'].includes(pathname) ? 'sales' : 'general';
-  const openAI = () => router.setParams({ ai: '1' });
+  const department = ['general', 'sales', 'marketing'].includes(params.department ?? '')
+    ? params.department as 'general' | 'sales' | 'marketing'
+    : pathname === '/marketing' ? 'marketing'
+      : ['/sales', '/import-leads', '/cold-call', '/follow-ups', '/ai-mode'].includes(pathname) ? 'sales' : 'general';
+  const openAI = () => router.setParams({ ai: '1', department: 'general' });
   const closeAI = () => {
-    if (pathname === '/ai-mode') router.replace(department === 'marketing' ? '/marketing' : '/sales');
-    else router.setParams({ ai: '0' });
+    if (pathname === '/ai-mode') router.replace(department === 'marketing' ? '/marketing' : department === 'sales' ? '/sales' : '/');
+    else router.setParams({ ai: '0', department: undefined });
   };
   const changeDepartment = (value: string) => {
     const path = value === 'sales' ? '/sales' : value === 'marketing' ? '/marketing' : '/';

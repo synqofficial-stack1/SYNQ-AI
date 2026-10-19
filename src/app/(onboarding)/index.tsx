@@ -88,7 +88,10 @@ export default function OnboardingScreen() {
       }
       const loaded: OnboardingAnswers = { ...EMPTY_ONBOARDING_ANSWERS, ...row };
       setAnswers(loaded);
-      const firstUnanswered = QUESTIONS.findIndex((question) => !hasAnswer(loaded, question));
+      // Apply the same rules used by Continue, including the conditional text
+      // fields shown when a user picks “Other”. This brings older/incomplete
+      // drafts back to the field the database requires before completion.
+      const firstUnanswered = QUESTIONS.findIndex((question) => !canContinue(loaded, question));
       setStep(firstUnanswered < 0 ? QUESTIONS.length - 1 : firstUnanswered);
       setLoading(false);
       if (!loggedStarted.current) {
@@ -171,7 +174,14 @@ export default function OnboardingScreen() {
       setStep(step + 1);
       return;
     }
-    if (!isOnboardingComplete(answers)) return;
+    if (!isOnboardingComplete(answers)) {
+      const missingStep = QUESTIONS.findIndex((item) => !canContinue(answers, item));
+      if (missingStep >= 0) setStep(missingStep);
+      setError(missingStep >= 0
+        ? 'Please complete this required answer before finishing setup.'
+        : 'Some required answers are missing. Review your answers and try again.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -278,19 +288,13 @@ export default function OnboardingScreen() {
   );
 }
 
-function hasAnswer(answers: OnboardingAnswers, question: Question) {
-  const value = answers[question.key];
-  if (question.optional) return true;
-  return Array.isArray(value) ? value.length > 0 : Boolean(value);
-}
-
 function canContinue(answers: OnboardingAnswers, question: Question) {
   const value = answers[question.key];
   if (question.optional) return true;
   if (Array.isArray(value)) return value.length > 0 && (!question.max || value.length <= question.max);
   if (!value) return false;
-  if (question.key === 'q3_industry') return value !== 'other' || Boolean(answers.q3_industry_other.trim());
-  if (question.key === 'q13_discovery_source') return value !== 'other' || Boolean(answers.q13_discovery_source_other.trim());
+  if (question.key === 'q3_industry') return value !== 'other' || Boolean((answers.q3_industry_other ?? '').trim());
+  if (question.key === 'q13_discovery_source') return value !== 'other' || Boolean((answers.q13_discovery_source_other ?? '').trim());
   return true;
 }
 

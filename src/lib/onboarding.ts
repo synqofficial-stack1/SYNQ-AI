@@ -114,7 +114,9 @@ export function isOnboardingComplete(answers: OnboardingAnswers) {
     answers.q1_role && answers.q2_business && answers.q3_industry && answers.q4_team_size &&
     answers.q5_challenges.length >= 1 && answers.q5_challenges.length <= 3 && answers.q6_first_goal &&
     answers.q7_departments.length >= 1 && answers.q8_ai_familiarity && answers.q9_work_style &&
-    answers.q10_response_style && answers.q11_priority && answers.q13_discovery_source && answers.q14_trial_reason
+    answers.q10_response_style && answers.q11_priority && answers.q13_discovery_source && answers.q14_trial_reason &&
+    (answers.q3_industry !== 'other' || (answers.q3_industry_other ?? '').trim()) &&
+    (answers.q13_discovery_source !== 'other' || (answers.q13_discovery_source_other ?? '').trim())
   );
 }
 
