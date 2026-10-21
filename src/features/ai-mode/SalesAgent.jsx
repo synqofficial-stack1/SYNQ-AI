@@ -332,7 +332,7 @@ export default function SalesAgent({
       setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, dept } : c)));
     }
     if (asCalls) {
-      updateChat(chatId, [...history, { role: 'assistant', type: 'call-plan', content: 'Open Sales to review the number, questions, and calling permission before placing the call.' }]);
+      updateChat(chatId, [...history, { role: 'assistant', type: 'call-plan', content: 'Phone calling is paused. Open Sales to create an email duty, add recipients and questions, and review your message before sending.' }]);
       setInput('');
       return;
     }
@@ -677,7 +677,7 @@ export default function SalesAgent({
                       <div className="sa-ai-icon"><Logo size={22} /></div>
                       {m.type === 'call-plan' ? (
                         <div className="sa-pf-wrap">
-                          <p>{m.content}</p><button className="sa-btn-secondary" onClick={onOpenCalls}>Open customer calls →</button>
+                          <p>{m.content}</p><button className="sa-btn-secondary" onClick={onOpenCalls}>Open email outreach →</button>
                         </div>
                       ) : m.type === 'poster-form' ? (
                         <div className="sa-pf-wrap">

@@ -54,7 +54,9 @@
     "lint": "expo lint",
     "test:calls": "node scripts/test-call-reports.cjs",
     "test:ai-mode": "node scripts/test-ai-mode.cjs",
-    "test:credits": "node scripts/test-ai-credits.cjs"
+    "test:credits": "node scripts/test-ai-credits.cjs",
+    "test:email": "node scripts/test-email-outreach.cjs",
+    "test:sales": "node scripts/test-sales-workspace.cjs"
   },
   "private": true
 }

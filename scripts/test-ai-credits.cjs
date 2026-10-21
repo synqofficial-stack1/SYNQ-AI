@@ -11,6 +11,7 @@ function harness(endpoint, options = {}) {
   let handler;
   let providerCalls = 0;
   const rpcCalls = [], writes = [];
+  const delays = [], providerRequests = [];
   const db = {
     auth: { getUser: async () => ({ data: { user: options.unsigned ? null : { id: 'owner' } } }) },
     rpc: async (name, args) => {
@@ -23,12 +24,12 @@ function harness(endpoint, options = {}) {
       let data = table === 'departments' ? { id: 'dept', system_instructions: 'Help the customer' } : table === 'messages' ? [] : { id: 'record' };
       let error = null;
       const chain = {
-        select: () => chain, eq: () => chain, order: () => chain,
+        select: () => chain, eq: () => chain, not: () => chain, order: () => chain,
         limit: async () => ({ data, error }),
         maybeSingle: async () => ({ data, error }), single: async () => ({ data, error }),
         insert: row => { writes.push({ table, row }); data = { id: 'record' }; if (options.saveFailure && row.role === 'model') error = { message: 'failed' }; return chain; },
         update: () => chain,
-        then: resolve => Promise.resolve({ data, error }).then(resolve),
+        then: resolve => Promise.resolve({ data, error, count: 2 }).then(resolve),
       };
       return chain;
     },
@@ -41,21 +42,61 @@ function harness(endpoint, options = {}) {
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
     vm.runInNewContext(code, {
       exports, Response, Request, Error, console, AbortSignal,
+      setTimeout: (callback, delay) => { delays.push(delay); callback(); },
       require: name => name.startsWith('jsr:') ? { createClient: () => db } : load(path.resolve(path.dirname(file), name)),
       Deno: { env: { get: () => 'test-value' }, serve: fn => { handler = fn; } },
-      fetch: async () => {
+      fetch: async (url, init) => {
         providerCalls++;
+        providerRequests.push({url,body:init?.body});
         if (options.providerThrows) throw new Error('offline');
+        if (options.summary && providerCalls===1) return Response.json({candidates:[{content:{parts:[{functionCall:{name:'get_workspace_summary',args:{}}}]}}]});
+        const status = options.statuses?.[providerCalls - 1] ?? 200;
+        if(status !== 200) return Response.json({error:{message:'Provider unavailable'}},{status,headers:options.retryAfter ? {'Retry-After':options.retryAfter}:undefined});
         return Response.json({ candidates: [{ content: { parts: options.empty ? [] : [{ text: 'A useful answer' }] } }] });
       },
     });
     return exports;
   };
   load(path.join(__dirname, `../supabase/functions/${endpoint}/index.ts`));
-  return { rpcCalls, writes, providerCalls: () => providerCalls, run: body => handler(new Request('https://test.invalid', { method: 'POST', headers: { Authorization: 'Bearer test-user' }, body: JSON.stringify(body) })) };
+  return { rpcCalls, writes, delays, providerRequests, providerCalls: () => providerCalls, run: body => handler(new Request('https://test.invalid', { method: 'POST', headers: { Authorization: 'Bearer test-user' }, body: JSON.stringify(body) })) };
 }
 
 const chat = { kind: 'sales_ai', message: 'Draft an email', context: { ai_mode: true } };
+
+test('temporary Gemini overload retries the same request with backoff and only one credit reservation',async()=>{
+  const h=harness('chat',{statuses:[503,503,200]});
+  assert.equal((await h.run(chat)).status,200);
+  assert.equal(h.providerCalls(),3);
+  assert.equal(h.rpcCalls.filter(c=>c.name==='reserve_ai_credits').length,1);
+  assert.equal(h.rpcCalls.filter(c=>c.name==='refund_ai_credits').length,0);
+  assert.equal(h.providerRequests[0].url,h.providerRequests[2].url);
+  assert.equal(h.providerRequests[0].body,h.providerRequests[2].body);
+  assert.ok(h.delays[0]>=1000 && h.delays[0]<1250);
+  assert.ok(h.delays[1]>=2000 && h.delays[1]<2250);
+});
+
+test('persistent overload is bounded, returns a clear error and refunds the app credit',async()=>{
+  const h=harness('chat',{statuses:[503,503,503]});
+  const response=await h.run(chat);
+  assert.equal(response.status,503);
+  assert.equal((await response.json()).error,'Our AI service is overloaded right now. Please try again in a minute.');
+  assert.equal(h.providerCalls(),3);
+  assert.equal(h.rpcCalls.filter(c=>c.name==='refund_ai_credits').length,1);
+  assert.equal(h.writes.filter(w=>w.row.role==='model').length,0);
+});
+
+test('quota/auth failures and long provider cooldowns do not loop or switch providers',async()=>{
+  for(const config of [{statuses:[429]},{statuses:[403]},{statuses:[503],retryAfter:'120'}]){
+    const h=harness('chat',config);
+    assert.ok((await h.run(chat)).status>=400);
+    assert.equal(h.providerCalls(),1);
+    assert.equal(h.delays.length,0);
+    assert.equal(h.rpcCalls.at(-1).name,'refund_ai_credits');
+  }
+  const h=harness('chat',{statuses:[503,200],retryAfter:'3'});
+  assert.equal((await h.run(chat)).status,200);
+  assert.equal(h.delays[0],3000);
+});
 
 test('every chat entry point spends one credit under the verified user, including PDF analysis', async () => {
   for (const kind of ['assistant', 'sales_ai', 'crm', 'content', 'campaign']) {
@@ -145,4 +186,10 @@ test('browser bridge preserves remaining credits and upgrade errors for both cha
     assert.equal(response.status, 402);
     assert.equal((await response.json()).remaining, 1);
   }
+});
+
+test('workspace AI advertises email duties and returns email metrics without calling tools',async()=>{
+ const h=harness('chat',{summary:true});assert.equal((await h.run(chat)).status,200);
+ const request=JSON.parse(h.providerRequests[0].body);const tools=request.tools[0].functionDeclarations.map(t=>t.name);assert.ok(tools.includes('navigate'));assert.ok(!tools.includes('start_sales_run'));assert.ok(!tools.includes('list_follow_ups'));assert.ok(!tools.includes('check_run_status'));assert.match(request.system_instruction.parts[0].text,/Phone calling is removed/);assert.doesNotMatch(request.system_instruction.parts[0].text,/Customer calls require/);
+ const next=JSON.parse(h.providerRequests[1].body);const result=next.contents.flatMap(c=>c.parts).find(p=>p.functionResponse).functionResponse.response;assert.deepEqual(Object.keys(result).sort(),['contacts','email_duties','emails_sent','people_replied'].sort());assert.equal(result.emails_sent,2);
 });
