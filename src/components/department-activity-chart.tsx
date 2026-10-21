@@ -19,7 +19,9 @@ function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-async function loadDepartmentActivity(department: Department): Promise<ActivitySummary> {
+async function loadDepartmentActivity(
+  department: Department,
+): Promise<ActivitySummary> {
   const since = new Date();
   since.setDate(since.getDate() - (WINDOW_DAYS - 1));
   since.setHours(0, 0, 0, 0);
@@ -27,17 +29,36 @@ async function loadDepartmentActivity(department: Department): Promise<ActivityS
   let timestamps: string[] = [];
 
   if (department === 'sales') {
-    const [runs, calls] = await Promise.all([
-      supabase.from('sales_runs').select('created_at').gte('created_at', sinceIso),
-      supabase.from('calls').select('created_at').gte('created_at', sinceIso),
+    const [deals, duties, replies] = await Promise.all([
+      supabase
+        .from('sales_deals')
+        .select('created_at')
+        .gte('created_at', sinceIso),
+      supabase
+        .from('outreach_campaigns')
+        .select('created_at')
+        .gte('created_at', sinceIso),
+      supabase
+        .from('outreach_messages')
+        .select('received_at')
+        .eq('is_auto_reply', false)
+        .gte('received_at', sinceIso),
     ]);
-    if (runs.error) throw new Error(runs.error.message);
-    if (calls.error) throw new Error(calls.error.message);
-    timestamps = [...(runs.data ?? []), ...(calls.data ?? [])].map((row) => row.created_at);
+    if (deals.error) throw new Error(deals.error.message);
+    if (duties.error) throw new Error(duties.error.message);
+    if (replies.error) throw new Error(replies.error.message);
+    timestamps = [
+      ...(deals.data ?? []).map((r) => r.created_at),
+      ...(duties.data ?? []).map((r) => r.created_at),
+      ...(replies.data ?? []).map((r) => r.received_at),
+    ];
   } else {
     const [videos, posts, messagesResult] = await Promise.all([
       supabase.from('videos').select('created_at').gte('created_at', sinceIso),
-      supabase.from('social_posts').select('created_at').gte('created_at', sinceIso),
+      supabase
+        .from('social_posts')
+        .select('created_at')
+        .gte('created_at', sinceIso),
       supabase
         .from('messages')
         .select('created_at, conversations ( kind )')
@@ -55,7 +76,11 @@ async function loadDepartmentActivity(department: Department): Promise<ActivityS
       ...(videos.data ?? []).map((row) => row.created_at),
       ...(posts.data ?? []).map((row) => row.created_at),
       ...messages
-        .filter((row) => row.conversations?.kind === 'content' || row.conversations?.kind === 'campaign')
+        .filter(
+          (row) =>
+            row.conversations?.kind === 'content' ||
+            row.conversations?.kind === 'campaign',
+        )
         .map((row) => row.created_at),
     ];
   }
@@ -73,7 +98,9 @@ async function loadDepartmentActivity(department: Department): Promise<ActivityS
     const key = dateKey(new Date(stamp));
     if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
   });
-  days.forEach((day) => { day.count = buckets.get(day.key) ?? 0; });
+  days.forEach((day) => {
+    day.count = buckets.get(day.key) ?? 0;
+  });
 
   return {
     days,
@@ -82,7 +109,11 @@ async function loadDepartmentActivity(department: Department): Promise<ActivityS
   };
 }
 
-export function DepartmentActivityChart({ department }: { department: Department }) {
+export function DepartmentActivityChart({
+  department,
+}: {
+  department: Department;
+}) {
   const theme = useTheme();
   const [summary, setSummary] = useState<ActivitySummary | null>(null);
   const [error, setError] = useState(false);
@@ -102,39 +133,86 @@ export function DepartmentActivityChart({ department }: { department: Department
     }
   }, [department]);
 
-  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.surface, borderColor: theme.border },
+      ]}
+    >
       <View style={styles.header}>
         <View style={styles.summary}>
           <View style={styles.kpi}>
-            <ThemedText type="caption" themeColor="textSecondary" style={styles.eyebrow}>14 DAY TOTAL</ThemedText>
-            <ThemedText style={[styles.total, { color: theme.text }]}>{loading ? '—' : String(summary?.total ?? 0)}</ThemedText>
+            <ThemedText
+              type="caption"
+              themeColor="textSecondary"
+              style={styles.eyebrow}
+            >
+              14 DAY TOTAL
+            </ThemedText>
+            <ThemedText style={[styles.total, { color: theme.text }]}>
+              {loading ? '—' : String(summary?.total ?? 0)}
+            </ThemedText>
           </View>
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
           <View style={styles.kpi}>
-            <ThemedText type="caption" themeColor="textSecondary" style={styles.eyebrow}>BUSIEST DAY</ThemedText>
-            <ThemedText style={[styles.total, { color: theme.text }]}>{loading ? '—' : String(summary?.peak ?? 0)}</ThemedText>
+            <ThemedText
+              type="caption"
+              themeColor="textSecondary"
+              style={styles.eyebrow}
+            >
+              BUSIEST DAY
+            </ThemedText>
+            <ThemedText style={[styles.total, { color: theme.text }]}>
+              {loading ? '—' : String(summary?.peak ?? 0)}
+            </ThemedText>
           </View>
         </View>
-        <View style={[styles.periodPill, { borderColor: theme.border, backgroundColor: theme.surfaceRaised }]}>
-          <ThemedText type="caption" themeColor="textSecondary" style={styles.periodText}>14 DAYS</ThemedText>
+        <View
+          style={[
+            styles.periodPill,
+            { borderColor: theme.border, backgroundColor: theme.surfaceRaised },
+          ]}
+        >
+          <ThemedText
+            type="caption"
+            themeColor="textSecondary"
+            style={styles.periodText}
+          >
+            14 DAYS
+          </ThemedText>
         </View>
       </View>
 
       {loading ? (
-        <View style={styles.message}><ActivityIndicator color={CHART_GOLD} /></View>
+        <View style={styles.message}>
+          <ActivityIndicator color={CHART_GOLD} />
+        </View>
       ) : error ? (
         <View style={styles.message}>
-          <ThemedText type="small" themeColor="textSecondary">{departmentName} activity could not be loaded.</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {departmentName} activity could not be loaded.
+          </ThemedText>
         </View>
       ) : summary ? (
         <>
-          <ActivityLineChart days={summary.days} height={216} unit="actions" color={CHART_GOLD} />
+          <ActivityLineChart
+            days={summary.days}
+            height={216}
+            unit="actions"
+            color={CHART_GOLD}
+          />
           <View style={styles.legend}>
             <View style={[styles.legendDot, { backgroundColor: CHART_GOLD }]} />
-            <ThemedText type="caption" themeColor="textSecondary">{departmentName} activity · per day</ThemedText>
+            <ThemedText type="caption" themeColor="textSecondary">
+              {departmentName} activity · per day
+            </ThemedText>
           </View>
         </>
       ) : null}
@@ -143,14 +221,35 @@ export function DepartmentActivityChart({ department }: { department: Department
 }
 
 const styles = StyleSheet.create({
-  card: { gap: Spacing.three, padding: Spacing.four, borderWidth: 1, borderRadius: Radius.card },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  card: {
+    gap: Spacing.three,
+    padding: Spacing.four,
+    borderWidth: 1,
+    borderRadius: Radius.card,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
   summary: { flexDirection: 'row', alignItems: 'center', gap: Spacing.four },
   kpi: { gap: 2 },
   eyebrow: { fontSize: 9, letterSpacing: 1.2 },
-  total: { fontSize: 27, lineHeight: 31, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  total: {
+    fontSize: 27,
+    lineHeight: 31,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
   divider: { width: 1, height: 35 },
-  periodPill: { paddingHorizontal: Spacing.two, paddingVertical: Spacing.one, borderWidth: 1, borderColor: '#35434F', borderRadius: Radius.pill },
+  periodPill: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    borderWidth: 1,
+    borderColor: '#35434F',
+    borderRadius: Radius.pill,
+  },
   periodText: { fontSize: 9, letterSpacing: 0.8 },
   message: { height: 216, alignItems: 'center', justifyContent: 'center' },
   legend: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },

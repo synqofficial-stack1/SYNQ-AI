@@ -11,6 +11,7 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export type Profile = {
   id: string;
+  full_name: string | null;
   business_name: string | null;
   created_at: string;
 };

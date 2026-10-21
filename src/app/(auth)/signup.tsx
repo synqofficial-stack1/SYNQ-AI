@@ -6,14 +6,24 @@ import { AuthBackdrop, BrandMark } from '@/components/auth-backdrop';
 import { GoldButton, GoogleButton, OrDivider } from '@/components/auth-buttons';
 import { AuthCard } from '@/components/auth-card';
 import { AuthField } from '@/components/auth-field';
-import { EyeIcon, EyeOffIcon, LockIcon, MailIcon } from '@/components/auth-icons';
+import {
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  MailIcon,
+} from '@/components/auth-icons';
 import { AccentColors } from '@/constants/theme';
-import { authErrorMessage, googleSignInIsEnabled, signInWithGoogle } from '@/lib/auth';
+import {
+  authErrorMessage,
+  googleSignInIsEnabled,
+  signInWithGoogle,
+} from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 
 type Busy = 'password' | 'google' | null;
 
 export default function SignupScreen() {
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
@@ -40,9 +50,14 @@ export default function SignupScreen() {
     setInfo(null);
     setBusy('password');
     try {
+      if (!fullName.trim()) {
+        setError('Enter your name to create your account.');
+        return;
+      }
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: { data: { full_name: fullName.trim() } },
       });
       if (signUpError) {
         setError(authErrorMessage(signUpError));
@@ -52,11 +67,15 @@ export default function SignupScreen() {
         router.replace('/(app)');
         return;
       }
-      setInfo('Could not start your session. Try logging in, or reset your password if you already have an account.');
+      setInfo(
+        'Could not start your session. Try logging in, or reset your password if you already have an account.',
+      );
     } catch {
       // signUp rejects (rather than returning an `error` field) when the request
       // never reaches Supabase at all, e.g. no internet connection.
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(
+        'Could not reach the server. Check your connection and try again.',
+      );
     } finally {
       setBusy(null);
     }
@@ -94,6 +113,18 @@ export default function SignupScreen() {
 
         <AuthField
           icon={<MailIcon />}
+          placeholder="Your full name"
+          accessibilityLabel="Your full name"
+          value={fullName}
+          onChangeText={setFullName}
+          maxLength={100}
+          autoCapitalize="words"
+          autoComplete="name"
+          textContentType="name"
+          returnKeyType="next"
+        />
+        <AuthField
+          icon={<MailIcon />}
           placeholder="Email"
           value={email}
           onChangeText={setEmail}
@@ -126,7 +157,9 @@ export default function SignupScreen() {
           title="Create account"
           onPress={handleSignup}
           loading={busy === 'password'}
-          disabled={busy !== null || !email.trim() || !password}
+          disabled={
+            busy !== null || !fullName.trim() || !email.trim() || !password
+          }
         />
 
         <View style={styles.footer}>
@@ -145,7 +178,16 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   error: { color: AccentColors.error, fontSize: 13, lineHeight: 19 },
   info: { color: AccentColors.primaryLight, fontSize: 13, lineHeight: 19 },
-  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 2 },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
   footerText: { color: 'rgba(255, 255, 255, 0.72)', fontSize: 14 },
-  footerLink: { color: AccentColors.primaryLight, fontSize: 14, fontWeight: '600' },
+  footerLink: {
+    color: AccentColors.primaryLight,
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

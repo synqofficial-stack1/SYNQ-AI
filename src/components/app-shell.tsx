@@ -1,6 +1,13 @@
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { type ReactNode, useCallback, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 import { AIWorkspace } from '@/components/ai-workspace';
 import { ModalSheet } from '@/components/modal-sheet';
@@ -8,8 +15,14 @@ import { Sidebar } from '@/components/sidebar';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { TopBar } from '@/components/top-bar';
-import { Radius, Spacing, WideBreakpoint } from '@/constants/theme';
+import {
+  AccentColors,
+  Radius,
+  Spacing,
+  WideBreakpoint,
+} from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
+import { useWorkspace } from '@/hooks/use-workspace';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 
@@ -19,8 +32,9 @@ const TITLES: Record<string, string> = {
   '/history': 'Activity',
   '/import-leads': 'Sales · CRM',
   '/sales': 'Sales',
+  '/company': 'Company',
   '/ai-mode': 'AI Mode',
-  '/cold-call': 'Sales · Cold Call',
+  '/cold-call': 'Sales · Email outreach',
   '/follow-ups': 'Sales · Follow-ups',
   '/marketing': 'Marketing',
   '/upgrade': 'Plans',
@@ -30,9 +44,9 @@ const DESTINATIONS = [
   { label: 'Dashboard', path: '/' },
   { label: 'Activity', path: '/history' },
   { label: 'Sales', path: '/sales' },
+  { label: 'Company', path: '/company' },
   { label: 'AI Mode', path: '/ai-mode' },
   { label: 'CRM', path: '/import-leads' },
-  { label: 'Cold Call', path: '/cold-call' },
   { label: 'Follow-ups', path: '/follow-ups' },
   { label: 'Marketing', path: '/marketing' },
   { label: 'Plans', path: '/upgrade' },
@@ -43,19 +57,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ ai?: string; department?: string }>();
   const aiOpen = params.ai === '1' || pathname === '/ai-mode';
-  const department = pathname === '/marketing' || (pathname === '/ai-mode' && params.department === 'marketing') ? 'marketing'
-    : ['/sales', '/import-leads', '/cold-call', '/follow-ups', '/ai-mode'].includes(pathname) ? 'sales' : 'general';
+  const department =
+    pathname === '/marketing' ||
+    (pathname === '/ai-mode' && params.department === 'marketing')
+      ? 'marketing'
+      : [
+            '/sales',
+            '/import-leads',
+            '/cold-call',
+            '/follow-ups',
+            '/ai-mode',
+          ].includes(pathname)
+        ? 'sales'
+        : 'general';
   const openAI = () => router.setParams({ ai: '1' });
   const closeAI = () => {
-    if (pathname === '/ai-mode') router.replace(department === 'marketing' ? '/marketing' : '/sales');
+    if (pathname === '/ai-mode')
+      router.replace(department === 'marketing' ? '/marketing' : '/sales');
     else router.setParams({ ai: '0' });
   };
   const changeDepartment = (value: string) => {
-    const path = value === 'sales' ? '/sales' : value === 'marketing' ? '/marketing' : '/';
-    if (value !== department) router.push(`${path}?ai=1` as Parameters<typeof router.push>[0]);
+    const path =
+      value === 'sales' ? '/sales' : value === 'marketing' ? '/marketing' : '/';
+    if (value !== department)
+      router.push(`${path}?ai=1` as Parameters<typeof router.push>[0]);
   };
   const { width } = useWindowDimensions();
   const { session } = useSession();
+  const { identity } = useWorkspace();
 
   const isWide = width >= WideBreakpoint;
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -69,7 +98,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const results = useMemo(() => {
     const trimmed = query.trim().toLowerCase();
     if (!trimmed) return DESTINATIONS;
-    return DESTINATIONS.filter((entry) => entry.label.toLowerCase().includes(trimmed));
+    return DESTINATIONS.filter((entry) =>
+      entry.label.toLowerCase().includes(trimmed),
+    );
   }, [query]);
 
   const closeSearch = () => {
@@ -102,7 +133,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onMenu={() => setDrawerOpen(true)}
           onOpenSearch={openSearch}
           onOpenNotifications={() => setNotificationsOpen(true)}
-          userLabel={session?.user?.email ?? 'Account'}
+          userLabel={identity?.full_name || session?.user?.email || 'Account'}
           menuOpen={userMenuOpen}
           onToggleMenu={() => setUserMenuOpen((open) => !open)}
           onSignOut={() => {
@@ -111,8 +142,63 @@ export function AppShell({ children }: { children: ReactNode }) {
           }}
         />
         <View style={styles.content}>
-          {aiOpen ? <AIWorkspace department={department} onClose={closeAI} onDepartment={changeDepartment} onOpenCalls={() => router.push('/sales?ai=0' as Parameters<typeof router.push>[0])} /> : null}
-          <View style={{ flex: 1, minHeight: 0, display: aiOpen ? 'none' : 'flex' }}>
+          {aiOpen ? (
+            <AIWorkspace
+              department={department}
+              onClose={closeAI}
+              onDepartment={changeDepartment}
+              onOpenCalls={() =>
+                router.push(
+                  '/sales?view=email&ai=0' as Parameters<typeof router.push>[0],
+                )
+              }
+            />
+          ) : null}
+          <View
+            style={{ flex: 1, minHeight: 0, display: aiOpen ? 'none' : 'flex' }}
+          >
+            {!!identity?.membership?.pending_count && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/company')}
+                style={{ paddingHorizontal: 24, paddingVertical: 12 }}
+              >
+                <ThemedText type="linkPrimary">
+                  {identity.membership.pending_count} company join request(s) ·
+                  Review →
+                </ThemedText>
+              </Pressable>
+            )}
+            <View style={styles.aiActionRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() =>
+                  router.push(
+                    '/sales?compose=1' as Parameters<typeof router.push>[0],
+                  )
+                }
+                style={styles.aiAction}
+              >
+                <ThemedText
+                  type="smallBold"
+                  style={{ color: AccentColors.primary }}
+                >
+                  ✉ Email duty
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={openAI}
+                style={styles.aiAction}
+              >
+                <ThemedText
+                  type="smallBold"
+                  style={{ color: AccentColors.primary }}
+                >
+                  ✦ Open AI mode
+                </ThemedText>
+              </Pressable>
+            </View>
             <View style={{ flex: 1, minHeight: 0 }}>{children}</View>
           </View>
           {/* Only mounted while the menu is open. Wrapping the page itself in a
@@ -160,7 +246,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
         <ScrollView style={styles.resultList}>
           {results.length === 0 ? (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.noResults}>
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.noResults}
+            >
               No matches for “{query.trim()}”.
             </ThemedText>
           ) : (
@@ -170,11 +260,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                 accessibilityRole="button"
                 onPress={() => {
                   closeSearch();
-                  router.push(`${entry.path}${aiOpen && entry.path !== '/ai-mode' ? '?ai=1' : ''}` as Parameters<typeof router.push>[0]);
+                  router.push(
+                    `${entry.path}${aiOpen && entry.path !== '/ai-mode' ? '?ai=1' : ''}` as Parameters<
+                      typeof router.push
+                    >[0],
+                  );
                 }}
                 style={({ hovered }) => [
                   styles.result,
-                  { backgroundColor: hovered ? theme.surfaceRaised : 'transparent' },
+                  {
+                    backgroundColor: hovered
+                      ? theme.surfaceRaised
+                      : 'transparent',
+                  },
                 ]}
               >
                 <ThemedText type="small">{entry.label}</ThemedText>
@@ -184,18 +282,32 @@ export function AppShell({ children }: { children: ReactNode }) {
         </ScrollView>
       </ModalSheet>
 
-      {/* Synq sends nothing today: no scheduler, no background jobs, no push.
-          The bell says that rather than showing an invented inbox. */}
       <ModalSheet
         visible={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
         title="Notifications"
-        description="Nothing to show. Synq doesn't send notifications yet — results appear on the page that asked for them."
+        description={
+          identity?.membership?.pending_count
+            ? `${identity.membership.pending_count} company join request(s) need your approval.`
+            : 'No company requests awaiting your approval.'
+        }
         align="top"
       >
-        <View />
+        {!!identity?.membership?.pending_count && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setNotificationsOpen(false);
+              router.push('/company');
+            }}
+            style={{ padding: 18 }}
+          >
+            <ThemedText type="linkPrimary">
+              Review company requests →
+            </ThemedText>
+          </Pressable>
+        )}
       </ModalSheet>
-
     </View>
   );
 }
@@ -204,9 +316,33 @@ const styles = StyleSheet.create({
   root: { flex: 1, flexDirection: 'row' },
   main: { flex: 1 },
   content: { flex: 1, minHeight: 0 },
-  drawerBackdrop: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0, 0, 0, 0.55)' },
+  aiActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.five,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.one,
+  },
+  aiAction: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Radius.control,
+    borderWidth: 1,
+    borderColor: AccentColors.primary,
+  },
+  drawerBackdrop: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+  },
   drawerPanel: { height: '100%' },
   resultList: { maxHeight: 260 },
-  result: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Radius.control },
+  result: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Radius.control,
+  },
   noResults: { padding: Spacing.three },
 });

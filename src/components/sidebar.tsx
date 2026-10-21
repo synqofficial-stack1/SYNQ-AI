@@ -34,7 +34,8 @@ type NavEntry = {
   alsoMatches?: string[];
 };
 
-const iconColor = (active: boolean, muted: string) => (active ? AccentColors.primaryLight : muted);
+const iconColor = (active: boolean, muted: string) =>
+  active ? AccentColors.primaryLight : muted;
 
 function NavItem({
   label,
@@ -75,12 +76,18 @@ function NavItem({
       {/* A short gold rule on the active row: enough to find at a glance, quiet
           enough to ignore while reading the rest of the list. */}
       <View
-        style={[styles.activeRule, { backgroundColor: active ? AccentColors.primary : 'transparent' }]}
+        style={[
+          styles.activeRule,
+          { backgroundColor: active ? AccentColors.primary : 'transparent' },
+        ]}
       />
       <View style={styles.navIcon}>{icon}</View>
       <ThemedText
         type="small"
-        style={[styles.navLabel, { color: active ? theme.text : theme.textSecondary }]}
+        style={[
+          styles.navLabel,
+          { color: active ? theme.text : theme.textSecondary },
+        ]}
         numberOfLines={1}
       >
         {label}
@@ -94,7 +101,11 @@ function SoonTag() {
   const theme = useTheme();
   return (
     <View style={[styles.soon, { borderColor: theme.border }]}>
-      <ThemedText type="caption" themeColor="textSecondary" style={styles.soonText}>
+      <ThemedText
+        type="caption"
+        themeColor="textSecondary"
+        style={styles.soonText}
+      >
         Soon
       </ThemedText>
     </View>
@@ -103,7 +114,11 @@ function SoonTag() {
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <ThemedText type="caption" themeColor="textSecondary" style={styles.sectionLabel}>
+    <ThemedText
+      type="caption"
+      themeColor="textSecondary"
+      style={styles.sectionLabel}
+    >
       {children}
     </ThemedText>
   );
@@ -120,7 +135,10 @@ export function Sidebar({
 }) {
   const theme = useTheme();
   const pathname = usePathname();
-  const { department, ai } = useGlobalSearchParams<{ department?: string; ai?: string }>();
+  const { department, ai } = useGlobalSearchParams<{
+    department?: string;
+    ai?: string;
+  }>();
 
   // Whether to offer the Control Center at all. Hiding it is a courtesy, not a
   // lock: the route and its Edge Function both refuse a non-admin regardless.
@@ -136,13 +154,29 @@ export function Sidebar({
   }, []);
 
   const go = (path: string) => {
-    const destination = (pathname === '/ai-mode' || ai === '1') && path !== '/ai-mode' ? `${path}?ai=1` : path;
+    const destination =
+      (pathname === '/ai-mode' || ai === '1') && path !== '/ai-mode'
+        ? `${path}?ai=1`
+        : path;
     router.push(destination as Parameters<typeof router.push>[0]);
     onNavigate?.();
   };
 
   const main: NavEntry[] = [
-    { label: 'Dashboard', path: '/', icon: (a) => <HomeIcon size={17} color={iconColor(a, theme.textSecondary)} /> },
+    {
+      label: 'Dashboard',
+      path: '/',
+      icon: (a) => (
+        <HomeIcon size={17} color={iconColor(a, theme.textSecondary)} />
+      ),
+    },
+    {
+      label: 'Company',
+      path: '/company',
+      icon: (a) => (
+        <GearIcon size={17} color={iconColor(a, theme.textSecondary)} />
+      ),
+    },
   ];
 
   const departments: NavEntry[] = [
@@ -150,19 +184,33 @@ export function Sidebar({
       label: 'Sales',
       path: '/sales',
       alsoMatches: ['/import-leads', '/cold-call', '/follow-ups'],
-      icon: (a) => <ChartIcon size={17} color={iconColor(a, theme.textSecondary)} />,
+      icon: (a) => (
+        <ChartIcon size={17} color={iconColor(a, theme.textSecondary)} />
+      ),
     },
     {
       label: 'Marketing',
       path: '/marketing',
-      icon: (a) => <MegaphoneIcon size={17} color={iconColor(a, theme.textSecondary)} />,
+      icon: (a) => (
+        <MegaphoneIcon size={17} color={iconColor(a, theme.textSecondary)} />
+      ),
     },
   ];
 
   return (
-    <View style={[styles.sidebar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+    <View
+      style={[
+        styles.sidebar,
+        { backgroundColor: theme.surface, borderColor: theme.border },
+      ]}
+    >
       <View style={styles.brand}>
-        <Image source={MARK} style={styles.logo} contentFit="contain" accessibilityLabel="Synq" />
+        <Image
+          source={MARK}
+          style={styles.logo}
+          contentFit="contain"
+          accessibilityLabel="Synq"
+        />
         <ThemedText type="sectionTitle" style={styles.wordmark}>
           Synq
         </ThemedText>
@@ -180,8 +228,14 @@ export function Sidebar({
           style={({ hovered, pressed }) => [
             styles.assistantButton,
             {
-              borderColor: hovered || pressed ? AccentColors.primary : 'rgba(232, 197, 71, 0.45)',
-              backgroundColor: hovered || pressed ? 'rgba(232, 197, 71, 0.14)' : 'rgba(232, 197, 71, 0.07)',
+              borderColor:
+                hovered || pressed
+                  ? AccentColors.primary
+                  : 'rgba(232, 197, 71, 0.45)',
+              backgroundColor:
+                hovered || pressed
+                  ? 'rgba(232, 197, 71, 0.14)'
+                  : 'rgba(232, 197, 71, 0.07)',
             },
           ]}
         >
@@ -210,7 +264,11 @@ export function Sidebar({
             icon={
               <CrownIcon
                 size={17}
-                color={pathname === '/ceo' ? AccentColors.primaryLight : theme.textSecondary}
+                color={
+                  pathname === '/ceo'
+                    ? AccentColors.primaryLight
+                    : theme.textSecondary
+                }
               />
             }
             active={pathname === '/ceo'}
@@ -222,8 +280,12 @@ export function Sidebar({
       <View style={styles.section}>
         <SectionLabel>DEPARTMENTS</SectionLabel>
         {departments.map((entry) => {
-          const active = pathname === entry.path || (entry.alsoMatches?.includes(pathname) ?? false)
-            || (pathname === '/ai-mode' && entry.path === (department === 'marketing' ? '/marketing' : '/sales'));
+          const active =
+            pathname === entry.path ||
+            (entry.alsoMatches?.includes(pathname) ?? false) ||
+            (pathname === '/ai-mode' &&
+              entry.path ===
+                (department === 'marketing' ? '/marketing' : '/sales'));
           return (
             <NavItem
               key={entry.path}
@@ -242,7 +304,12 @@ export function Sidebar({
         <SectionLabel>PLUGINS</SectionLabel>
         <NavItem
           label="Plugins"
-          icon={<PlugIcon size={17} color={iconColor(pathname === '/plugins', theme.textSecondary)} />}
+          icon={
+            <PlugIcon
+              size={17}
+              color={iconColor(pathname === '/plugins', theme.textSecondary)}
+            />
+          }
           active={pathname === '/plugins'}
           onPress={() => go('/plugins')}
         />
@@ -261,21 +328,33 @@ export function Sidebar({
         style={({ hovered }) => [
           styles.upgradeCard,
           {
-            borderColor: hovered ? AccentColors.primary : 'rgba(232, 197, 71, 0.3)',
-            backgroundColor: hovered ? 'rgba(232, 197, 71, 0.12)' : 'rgba(232, 197, 71, 0.06)',
+            borderColor: hovered
+              ? AccentColors.primary
+              : 'rgba(232, 197, 71, 0.3)',
+            backgroundColor: hovered
+              ? 'rgba(232, 197, 71, 0.12)'
+              : 'rgba(232, 197, 71, 0.06)',
           },
         ]}
       >
         <View style={styles.upgradeHead}>
           <CrownIcon size={15} color={AccentColors.primaryLight} />
-          <ThemedText type="smallBold" style={{ color: AccentColors.primaryLight }}>
+          <ThemedText
+            type="smallBold"
+            style={{ color: AccentColors.primaryLight }}
+          >
             Synq Pro
           </ThemedText>
         </View>
         <ThemedText type="caption" themeColor="textSecondary">
           Unlock more departments and advanced insights.
         </ThemedText>
-        <View style={[styles.upgradeCta, { backgroundColor: AccentColors.primaryLight }]}>
+        <View
+          style={[
+            styles.upgradeCta,
+            { backgroundColor: AccentColors.primaryLight },
+          ]}
+        >
           <ThemedText type="caption" style={styles.upgradeCtaText}>
             Upgrade →
           </ThemedText>
@@ -333,7 +412,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.control + 2,
     borderWidth: 1,
   },
-  activeRule: { width: 2, height: 18, borderRadius: 1, marginLeft: Spacing.two - 1 },
+  activeRule: {
+    width: 2,
+    height: 18,
+    borderRadius: 1,
+    marginLeft: Spacing.two - 1,
+  },
   navIcon: { width: 20, alignItems: 'center' },
   navLabel: { flex: 1 },
   soon: {
@@ -353,7 +437,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card + 4,
     borderWidth: 1,
   },
-  upgradeHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one + 2 },
+  upgradeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one + 2,
+  },
   upgradeCta: {
     alignItems: 'center',
     paddingVertical: Spacing.two,

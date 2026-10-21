@@ -18,6 +18,7 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
+import { useWorkspace } from '@/hooks/use-workspace';
 import { useTheme } from '@/hooks/use-theme';
 import { subscribeAnalytics } from '@/lib/analytics-events';
 import { supabase } from '@/lib/supabase';
@@ -220,6 +221,7 @@ function Hero({ name, wide }: { name: string; wide: boolean }) {
 export default function DashboardScreen() {
   const theme = useTheme();
   const { session } = useSession();
+  const {identity}=useWorkspace();
   const { width } = useWindowDimensions();
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
@@ -289,7 +291,7 @@ export default function DashboardScreen() {
     };
   }, [attempt]);
 
-  const name = (session?.user?.email ?? '').split('@')[0] || 'there';
+  const name = identity?.full_name || String(session?.user?.user_metadata?.full_name||session?.user?.user_metadata?.name||'there');
   const wide = width >= WideBreakpoint;
   const roomy = width >= 1180;
 
@@ -512,7 +514,7 @@ export default function DashboardScreen() {
                 </View>
                 <ThemedText type="small">No automations yet</ThemedText>
                 <ThemedText type="caption" themeColor="textSecondary">
-                  Nothing runs in the background today. Every call, chat and video happens because
+                  Email duties continue checking for replies after you approve sending. Chats and videos run because
                   you asked for it.
                 </ThemedText>
               </View>
@@ -526,7 +528,7 @@ export default function DashboardScreen() {
               {[
                 {
                   label: 'Sales',
-                  hint: 'Finds businesses, calls them, writes up what was said',
+                  hint: 'Sends reviewed emails, simplifies replies, and reports what customers say',
                   path: '/sales',
                   icon: <ChartIcon size={18} color={AccentColors.primaryLight} />,
                 },
@@ -570,7 +572,7 @@ export default function DashboardScreen() {
             <GlassCard style={panel(styles.donutCard)}>
               <SectionHead title="Quick actions" />
               {[
-                { label: 'Start cold calling', path: '/cold-call' },
+                { label: 'Start email outreach', path: '/sales?compose=1' },
                 { label: 'Review follow-ups', path: '/follow-ups' },
                 { label: 'Import CRM contacts', path: '/import-leads' },
                 { label: 'View sales activity', path: '/sales' },

@@ -24,3 +24,14 @@ verify_jwt = true
 
 [functions.generate-image]
 verify_jwt = true
+
+[functions.gmail-auth]
+# OAuth callback has no app session. POST actions validate the user explicitly.
+verify_jwt = false
+
+[functions.email-outreach]
+verify_jwt = true
+
+[functions.email-worker]
+# Scheduled calls use an independent server-only secret, checked in the handler.
+verify_jwt = false
