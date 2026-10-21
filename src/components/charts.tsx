@@ -59,10 +59,12 @@ export function ActivityLineChart({
   days,
   height = 210,
   unit = 'runs',
+  color = GOLD,
 }: {
   days: Day[];
   height?: number;
   unit?: string;
+  color?: string;
 }) {
   const theme = useTheme();
   const [width, setWidth] = useState(0);
@@ -120,9 +122,9 @@ export function ActivityLineChart({
           <Svg width={width} height={height}>
             <Defs>
               <LinearGradient id="activityFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={GOLD} stopOpacity={0.32} />
-                <Stop offset="0.55" stopColor={GOLD} stopOpacity={0.09} />
-                <Stop offset="1" stopColor={GOLD} stopOpacity={0} />
+                <Stop offset="0" stopColor={color} stopOpacity={0.32} />
+                <Stop offset="0.55" stopColor={color} stopOpacity={0.09} />
+                <Stop offset="1" stopColor={color} stopOpacity={0} />
               </LinearGradient>
             </Defs>
 
@@ -150,7 +152,7 @@ export function ActivityLineChart({
             {linePath ? (
               <Path
                 d={linePath}
-                stroke={GOLD}
+                stroke={color}
                 strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -164,8 +166,8 @@ export function ActivityLineChart({
                 cx={point.x}
                 cy={point.y}
                 r={index === active ? 5 : 3}
-                fill={index === active ? GOLD : theme.background}
-                stroke={GOLD}
+                fill={index === active ? color : theme.background}
+                stroke={color}
                 strokeWidth={2}
               />
             ))}
@@ -176,7 +178,7 @@ export function ActivityLineChart({
                 y1={padding.top}
                 x2={activePoint.x}
                 y2={padding.top + plotHeight}
-                stroke={GOLD}
+                stroke={color}
                 strokeWidth={1}
                 strokeDasharray="4 4"
                 opacity={0.6}
@@ -224,6 +226,7 @@ export function ActivityLineChart({
               style={[
                 styles.tooltip,
                 {
+                  backgroundColor: color,
                   left: Math.min(Math.max(activePoint.x - 38, 0), Math.max(width - 76, 0)),
                   top: Math.max(activePoint.y - 34, 0),
                 },

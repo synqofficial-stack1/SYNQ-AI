@@ -1,23 +1,20 @@
-// Turns an agreed marketing concept into a video with Veo.
+// Turns an agreed marketing concept into a video with fal.ai's Seedance model.
 //
 // Two actions on one function, because they are two halves of one job:
 //
-//   start  — records what was asked for, then hands the prompt to Veo and keeps
-//            the operation handle.
-//   check  — polls that handle. When it finishes, the file is pulled down and
+//   start  — records what was asked for, then submits it to fal's durable queue
+//            and keeps the request id.
+//   check  — polls that request. When it finishes, the file is pulled down and
 //            put in storage, because the download URL needs the API key and the
 //            key must never reach the app.
 //
-// Every call to Veo is billed from the first second — there is no free tier —
-// so the row is written before the request goes out. If this function dies
-// mid-flight there is still a record of what was paid for, and `start` refuses
-// to run twice on a video that already has an operation.
+// The row is written before submitting to fal so a paid request is never
+// invisible if this function dies mid-flight.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { buildFalInput, FAL_VIDEO_MODEL, parseVideoOptions } from '../_shared/video-generation.ts';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-/** Fast costs roughly a third of standard per second. Overridable if wanted. */
-const DEFAULT_MODEL = 'veo-3.1-fast-generate-preview';
+const FAL_QUEUE = 'https://queue.fal.run';
 const BUCKET = 'generated-videos';
 const MAX_PROMPT_CHARS = 2000;
 
@@ -34,57 +31,42 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Turns a Google error response into something a non-engineer can act on. */
-async function describeGoogleError(response: Response, key: string, model: string) {
+/** Return actionable provider errors without ever reflecting request headers. */
+async function describeFalError(response: Response) {
   let reason = '';
   try {
-    reason = String((await response.json())?.error?.message ?? '');
+    const body = await response.json();
+    reason = String(body?.detail?.[0]?.msg ?? body?.error ?? body?.message ?? '');
   } catch {
-    // Not JSON; the status still tells us enough.
+    // The status is enough when there is no JSON body.
   }
 
+  if (response.status === 401) {
+    return 'fal.ai rejected the configured API key (401). Replace FAL_AI_API_KEY with the current fal.ai key.';
+  }
+  if (response.status === 403) {
+    return 'fal.ai denied access to this model (403). Check model availability and account permissions in fal.ai.';
+  }
+  if (response.status === 402) {
+    return 'fal.ai needs an available balance or billing setup before it can generate this video.';
+  }
   if (response.status === 429) {
-    return 'Google refused: the quota for video generation is used up. Veo has no free tier, so this needs billing enabled on the Google Cloud project behind the key.';
+    return 'fal.ai is rate limiting video requests. Wait a little and try again.';
   }
-  if (response.status === 403 || /billing|permission|not enabled|quota/i.test(reason)) {
-    return `Google refused the request: ${reason || 'permission denied'}. Veo is a paid model — check that billing is on for this key and that the Generative Language API is enabled.`;
+  if (response.status === 422 || response.status === 400) {
+    return `fal.ai could not accept these video settings${reason ? `: ${reason}` : '.'}`;
   }
-  if (response.status === 400 && /api[_ ]?key|api key not valid/i.test(reason)) {
-    return 'Google rejected the API key. Check the GEMINI_API_KEY secret in Supabase.';
-  }
-
-  // Model ids move around, so name the ones that work rather than leaving the
-  // next person to guess one at a time.
-  if (response.status === 404) {
-    let available = '';
-    try {
-      const list = await fetch(`${BASE}/models`, { headers: { 'x-goog-api-key': key } });
-      if (list.ok) {
-        const usable = ((await list.json())?.models ?? [])
-          .map((m: { name?: string }) => String(m.name ?? '').replace(/^models\//, ''))
-          .filter((name: string) => name.includes('veo'))
-          .slice(0, 8);
-        available = usable.length
-          ? ` Video models this key can use: ${usable.join(', ')}.`
-          : ' This key has access to no Veo models at all, which usually means billing is not enabled.';
-      }
-    } catch {
-      // Best effort; the 404 is still the headline.
-    }
-    return `Google has no video model named "${model}".${available}`;
-  }
-
-  return `Video generation failed (${response.status})${reason ? `: ${reason}` : ''}.`;
+  return `fal.ai video request failed (${response.status})${reason ? `: ${reason}` : '.'}`;
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Use POST.' }, 405);
 
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey) return json({ error: 'The server is missing its GEMINI_API_KEY secret.' }, 500);
-
-  const model = Deno.env.get('VEO_MODEL') || DEFAULT_MODEL;
+  // Accept the key name already used in Supabase, while retaining FAL_KEY as
+  // a backwards-compatible alias for local/deployment environments.
+  const apiKey = Deno.env.get('FAL_AI_API_KEY') ?? Deno.env.get('FAL_KEY');
+  if (!apiKey) return json({ error: 'The server is missing its fal.ai API key. Add FAL_AI_API_KEY in Supabase Edge Function secrets.' }, 500);
 
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) return json({ error: 'You are signed out. Log in and try again.' }, 401);
@@ -124,11 +106,9 @@ Deno.serve(async (req) => {
     const conversationId = String(body.conversation_id ?? '');
     if (!conversationId) return json({ error: 'Which conversation is this for?' }, 400);
 
-    const aspect = body.aspect_ratio === '16:9' ? '16:9' : '9:16';
-    const duration = [4, 6, 8].includes(Number(body.duration_seconds))
-      ? Number(body.duration_seconds)
-      : 4;
-    const resolution = body.resolution === '1080p' ? '1080p' : '720p';
+    const parsedOptions = parseVideoOptions(body);
+    if ('error' in parsedOptions) return json({ error: parsedOptions.error }, 400);
+    const { aspectRatio: aspect, durationSeconds: duration, resolution } = parsedOptions.options;
 
     // Written first, so a generation that is billed is never invisible. RLS
     // rejects a conversation_id belonging to anyone else.
@@ -150,43 +130,35 @@ Deno.serve(async (req) => {
 
     let response: Response;
     try {
-      response = await fetch(`${BASE}/models/${model}:predictLongRunning`, {
+      response = await fetch(`${FAL_QUEUE}/${FAL_VIDEO_MODEL}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: {
-            aspectRatio: aspect,
-            durationSeconds: String(duration),
-            resolution,
-            personGeneration: 'allow_adult',
-          },
-        }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Key ${apiKey}` },
+        body: JSON.stringify(buildFalInput(prompt, parsedOptions.options, user.id)),
       });
     } catch {
       await supabase
         .from('videos')
-        .update({ status: 'failed', error: 'Could not reach Google.' })
+        .update({ status: 'failed', error: 'Could not reach fal.ai.' })
         .eq('id', video.id);
-      return json({ error: 'Could not reach Google. Try again.' }, 502);
+      return json({ error: 'Could not reach fal.ai. Try again.' }, 502);
     }
 
     if (!response.ok) {
-      const reason = await describeGoogleError(response, apiKey, model);
+      const reason = await describeFalError(response);
       await supabase.from('videos').update({ status: 'failed', error: reason }).eq('id', video.id);
       return json({ error: reason, video_id: video.id }, 502);
     }
 
-    const operationName = (await response.json())?.name ?? null;
-    if (!operationName) {
-      const reason = 'Google accepted the request but returned no job to track.';
+    const requestId = String((await response.json())?.request_id ?? '');
+    if (!requestId) {
+      const reason = 'fal.ai accepted the request but returned no job ID to track.';
       await supabase.from('videos').update({ status: 'failed', error: reason }).eq('id', video.id);
       return json({ error: reason, video_id: video.id }, 502);
     }
 
     const { data: updated } = await supabase
       .from('videos')
-      .update({ status: 'generating', operation_name: operationName })
+      .update({ status: 'generating', operation_name: `fal:${requestId}` })
       .eq('id', video.id)
       .select('*')
       .single();
@@ -211,18 +183,30 @@ Deno.serve(async (req) => {
     // Nothing to poll: already finished, or never started.
     if (video.status === 'ready' || video.status === 'failed') return json({ video });
     if (!video.operation_name) return json({ video });
+    if (!video.operation_name.startsWith('fal:')) {
+      const reason = 'This video was queued with the previous provider and cannot be resumed. Edit its prompt and generate a new fal.ai take.';
+      const { data: failed } = await supabase
+        .from('videos')
+        .update({ status: 'failed', error: reason })
+        .eq('id', video.id)
+        .select('*')
+        .single();
+      return json({ video: failed ?? video, error: reason }, 409);
+    }
 
+    const requestId = video.operation_name.slice('fal:'.length);
+    const auth = { Authorization: `Key ${apiKey}` };
     let poll: Response;
     try {
-      poll = await fetch(`${BASE}/${video.operation_name}`, {
-        headers: { 'x-goog-api-key': apiKey },
+      poll = await fetch(`${FAL_QUEUE}/${FAL_VIDEO_MODEL}/requests/${encodeURIComponent(requestId)}/status`, {
+        headers: auth,
       });
     } catch {
-      return json({ video, note: 'Could not reach Google this time. Still waiting.' });
+      return json({ video, note: 'Could not reach fal.ai this time. Still waiting.' });
     }
 
     if (!poll.ok) {
-      const reason = await describeGoogleError(poll, apiKey, model);
+      const reason = await describeFalError(poll);
       const { data: failed } = await supabase
         .from('videos')
         .update({ status: 'failed', error: reason })
@@ -232,11 +216,14 @@ Deno.serve(async (req) => {
       return json({ video: failed ?? video, error: reason }, 502);
     }
 
-    const operation = await poll.json();
-    if (!operation?.done) return json({ video });
+    const queueStatus = await poll.json();
+    if (queueStatus?.status === 'IN_QUEUE' || queueStatus?.status === 'IN_PROGRESS') {
+      const position = Number.isInteger(queueStatus.queue_position) ? queueStatus.queue_position : null;
+      return json({ video, note: position === null ? 'Video is processing.' : `Video is queued (${position} ahead).` });
+    }
 
-    if (operation.error) {
-      const reason = String(operation.error.message ?? 'Google could not make this video.');
+    if (queueStatus?.status !== 'COMPLETED' || queueStatus?.error) {
+      const reason = String(queueStatus?.error ?? 'fal.ai could not complete this video.');
       const { data: failed } = await supabase
         .from('videos')
         .update({ status: 'failed', error: reason })
@@ -246,13 +233,19 @@ Deno.serve(async (req) => {
       return json({ video: failed ?? video, error: reason }, 502);
     }
 
-    const uri =
-      operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri ?? null;
+    let result: any;
+    try {
+      const resultResponse = await fetch(`${FAL_QUEUE}/${FAL_VIDEO_MODEL}/requests/${encodeURIComponent(requestId)}`, { headers: auth });
+      if (!resultResponse.ok) throw new Error('fal result request failed');
+      result = await resultResponse.json();
+    } catch {
+      return json({ video, note: 'The job is complete, but fal.ai could not return the file yet. Checking again will retry.' });
+    }
+
+    const uri = result?.video?.url ?? null;
 
     if (!uri) {
-      // Veo blocks prompts it will not film, and finishes "done" with no sample.
-      const reason =
-        'Google finished but returned no video. That usually means the concept was refused — try describing it differently.';
+      const reason = 'fal.ai finished but returned no video file. Try editing the prompt and generating another take.';
       const { data: failed } = await supabase
         .from('videos')
         .update({ status: 'failed', error: reason })
@@ -262,15 +255,20 @@ Deno.serve(async (req) => {
       return json({ video: failed ?? video, error: reason }, 502);
     }
 
-    // The download needs the API key, which is why the server fetches it rather
-    // than handing the URI to the app.
+    // fal's output URL is short-lived. Validate its host and never send FAL_KEY
+    // to the media host; the video is copied into Synq's private bucket.
     let bytes: ArrayBuffer;
     try {
-      const file = await fetch(uri, { headers: { 'x-goog-api-key': apiKey } });
+      const mediaUrl = new URL(uri);
+      const allowedHost = mediaUrl.hostname === 'fal.media'
+        || mediaUrl.hostname.endsWith('.fal.media')
+        || mediaUrl.hostname === 'storage.googleapis.com';
+      if (mediaUrl.protocol !== 'https:' || !allowedHost) throw new Error('Unexpected video host');
+      const file = await fetch(mediaUrl);
       if (!file.ok) throw new Error(String(file.status));
       bytes = await file.arrayBuffer();
     } catch {
-      return json({ video, note: 'The video is ready but the download failed. Checking again will retry.' });
+      return json({ video, note: 'The video is ready but could not be saved yet. Checking again will retry.' });
     }
 
     // Storage writes use the service role: the bucket deliberately has no insert

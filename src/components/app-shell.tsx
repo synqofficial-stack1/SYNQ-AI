@@ -148,7 +148,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClose={closeAI}
               onDepartment={changeDepartment}
               onOpenCalls={() =>
-                router.push('/sales?view=email&ai=0' as Parameters<typeof router.push>[0])
+                router.push(
+                  '/sales?view=email&ai=0' as Parameters<typeof router.push>[0],
+                )
               }
             />
           ) : null}

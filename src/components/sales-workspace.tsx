@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { EmailOutreach } from '@/components/email-outreach';
+import { DepartmentActivityChart } from '@/components/department-activity-chart';
 import { ModalSheet } from '@/components/modal-sheet';
 import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
@@ -745,6 +746,9 @@ export function SalesWorkspace() {
                 )}
                 {current === 'Targets' && (
                   <>
+                    {rows.length > 0 && (
+                      <DepartmentActivityChart department="sales" />
+                    )}
                     <Box>
                       <View style={styles.between}>
                         <ThemedText type="sectionTitle">
