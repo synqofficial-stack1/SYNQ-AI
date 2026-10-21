@@ -10,6 +10,11 @@
 // sales run, which builds a list and stops. Nothing can publish, delete, alter
 // a lead, or place a call.
 
+import { readAIModeInput } from '../_shared/ai-mode-input.ts';
+import { aiModeInstructions } from '../_shared/ai-mode.ts';
+import { withAICredits } from '../_shared/ai-credits.ts';
+
+// eslint-disable-next-line import/no-unresolved -- Deno resolves the JSR registry.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const GEMINI_MODEL = 'gemini-3.6-flash';
@@ -367,6 +372,7 @@ async function runTool(
 // ---------------------------------------------------------------------------
 
 type GeminiPart = {
+  inlineData?: { mimeType: string; data: string };
   text?: string;
   functionCall?: { name: string; args?: Record<string, unknown> };
   functionResponse?: { name: string; response: unknown };
@@ -497,16 +503,25 @@ Deno.serve(async (req) => {
   if (userError || !user) return json({ error: 'You are signed out. Log in and try again.' }, 401);
 
   let body: {
+    action?: string;
     conversation_id?: string;
     kind?: string;
     context?: Record<string, unknown>;
     message?: string;
+    attachments?: unknown;
+    initial_history?: unknown;
+    work_context?: unknown;
   };
   try {
     body = await req.json();
   } catch {
     return json({ error: 'Malformed request.' }, 400);
   }
+
+  if (!body || typeof body !== 'object') return json({ error: 'Malformed request.' }, 400);
+  if (body.action === 'ai-mode-capabilities') return json({ ai_mode_version: 2 });
+  let aiInput: ReturnType<typeof readAIModeInput>;
+  try { aiInput = readAIModeInput(body); } catch (error) { return json({ error: error instanceof Error ? error.message : 'Invalid files.' }, 400); }
 
   const message = String(body.message ?? '').slice(0, MAX_MESSAGE_CHARS).trim();
   if (!message) return json({ error: 'Type something first.' }, 400);
@@ -532,12 +547,12 @@ Deno.serve(async (req) => {
     .select('*')
     .eq('user_id', user.id)
     .maybeSingle();
-  // Personalization is additive. A missing/unavailable onboarding row must not
-  // break existing chat behavior for an otherwise valid signed-in user.
+  // Onboarding personalization is optional; a missing row must not block chat.
   const systemInstructions = department.system_instructions + onboardingContext(
     onboardingError ? null : onboarding as Record<string, unknown> | null
   );
 
+  return withAICredits(user.id, 'chat', async () => {
   // Resolve the thread. RLS means a conversation_id belonging to someone else
   // simply is not found.
   let conversationId = body.conversation_id;
@@ -546,6 +561,7 @@ Deno.serve(async (req) => {
       .from('conversations')
       .select('id')
       .eq('id', conversationId)
+      .eq('kind', kind)
       .maybeSingle();
     if (!existing) return json({ error: 'That conversation could not be found.' }, 404);
   } else {
@@ -562,13 +578,18 @@ Deno.serve(async (req) => {
       .single();
     if (createError) return json({ error: createError.message }, 500);
     conversationId = created.id;
+    if (aiInput.history.length) {
+      const start = Date.now() - aiInput.history.length - 1;
+      const { error: importError } = await supabase.from('messages').insert(aiInput.history.map((turn, index) => ({ conversation_id: conversationId, user_id: user.id, role: turn.role, content: turn.content, created_at: new Date(start + index).toISOString() })));
+      if (importError) return json({ error: 'Could not restore the earlier messages. Please try again.' }, 500);
+    }
   }
 
   const { data: history, error: historyError } = await supabase
     .from('messages')
     .select('role, content')
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT);
   if (historyError) return json({ error: historyError.message }, 500);
 
@@ -581,11 +602,11 @@ Deno.serve(async (req) => {
   if (saveUserError) return json({ error: saveUserError.message }, 500);
 
   const contents: GeminiContent[] = [
-    ...(history ?? []).map((m) => ({
+    ...(history ?? []).reverse().map((m) => ({
       role: m.role as 'user' | 'model',
       parts: [{ text: m.content }],
     })),
-    { role: 'user', parts: [{ text: message }] },
+    { role: 'user', parts: [{ text: message + (aiInput.context ? '\n\n<recent_work_context>\n' + aiInput.context + '\n</recent_work_context>' : '') }, ...aiInput.parts] },
   ];
 
   const allowed = TOOLS_FOR[kind] ?? [];
@@ -596,7 +617,7 @@ Deno.serve(async (req) => {
   try {
     let toolCalls = 0;
     for (;;) {
-      const parts = await callGemini(geminiKey, systemInstructions, contents, tools);
+      const parts = await callGemini(geminiKey, systemInstructions + (body.context?.ai_mode === true ? aiModeInstructions(kind) : ''), contents, tools);
       const calls = parts.filter((p) => p.functionCall);
 
       if (calls.length === 0 || toolCalls >= MAX_TOOL_CALLS) {
@@ -639,7 +660,7 @@ Deno.serve(async (req) => {
     return json({ error, conversation_id: conversationId }, 502);
   }
 
-  if (!reply) reply = 'I did that, but had nothing to add.';
+  if (!reply) return json({ error: 'The AI returned an empty reply. Please try again.', conversation_id: conversationId }, 502);
 
   const { error: saveModelError } = await supabase.from('messages').insert({
     conversation_id: conversationId,
@@ -658,5 +679,6 @@ Deno.serve(async (req) => {
     conversation_id: conversationId,
     reply,
     navigations: [...new Set(navigations)],
+  });
   });
 });

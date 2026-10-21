@@ -225,6 +225,7 @@ export type SalesRun = {
   request: string;
   objective: string | null;
   pitch: string | null;
+  call_questions: string[];
   location: string | null;
   industry: string | null;
   target_count: number;
@@ -254,6 +255,16 @@ export const TEMPERATURE_LABELS: Record<Temperature, string> = {
   cold: 'Cold',
 };
 
+export type SalesCallReport = {
+  summary: string;
+  outcome: string;
+  sentiment: 'positive' | 'neutral' | 'negative' | 'unknown';
+  answers: { question: string; answer: string }[];
+  needs: string[];
+  objections: string[];
+  next_steps: string[];
+};
+
 export type Prospect = {
   id: string;
   user_id: string;
@@ -273,6 +284,14 @@ export type Prospect = {
   call_notes: string | null;
   temperature: Temperature | null;
   transcript_summary: string | null;
+  call_transcript: { speaker: 'agent' | 'business'; text: string }[];
+  call_duration_seconds: number | null;
+  call_report: SalesCallReport | null;
+  report_status: 'pending' | 'processing' | 'ready' | 'failed';
+  report_started_at: string | null;
+  report_error: string | null;
+  recording_path: string | null;
+  recording_error: string | null;
   conversation_id: string | null;
   provider_call_id: string | null;
   called_at: string | null;
@@ -314,5 +333,31 @@ export type PlatformEvent = {
   summary: string;
   subject_id: string | null;
   meta: Record<string, unknown>;
+  created_at: string;
+};
+
+export type GeneratedImage = {
+  id: string;
+  user_id: string;
+  prompt: string;
+  department: 'sales' | 'marketing';
+  storage_path: string;
+  created_at: string;
+};
+
+// Server-managed: clients read their balance through get_ai_usage(), never write these rows.
+export type AICreditAccount = {
+  user_id: string;
+  credit_limit: number;
+  used: number;
+  window_id: string;
+  window_started_at: string | null;
+};
+export type AICreditDebit = {
+  id: string;
+  user_id: string;
+  window_id: string;
+  cost: 1 | 2;
+  refunded: boolean;
   created_at: string;
 };

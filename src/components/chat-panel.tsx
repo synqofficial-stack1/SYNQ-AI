@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { TextField } from '@/components/text-field';
+import { AIUsageNotice } from '@/components/ai-usage-notice';
 import { VideoActions } from '@/components/video-actions';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
@@ -57,7 +58,7 @@ export function ChatPanel({
    * the surrounding screen is showing, and the screen has no other way to know.
    */
   onReply?: () => void;
-  /** Shows the Veo generation action, which only Marketing wants today. */
+  /** Shows the video generation action, which only Marketing wants today. */
   enableVideo?: boolean;
   height?: number;
   /**
@@ -184,6 +185,7 @@ export function ChatPanel({
 
   return (
     <View style={[styles.panel, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+      <AIUsageNotice sending={sending} />
       <View style={[styles.panelHeader, { borderColor: theme.border }]}>
         <ThemedText type="caption" themeColor="textSecondary">
           {turns.length > 0

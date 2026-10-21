@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { AIUsageNotice } from '@/components/ai-usage-notice';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -30,10 +31,12 @@ const PLANS: Plan[] = [
     name: 'Free',
     tagline: 'Get started with Synq',
     price: '₹0',
-    cadence: 'Forever free',
+    cadence: '50 credits every 24 hours',
     departments: '2 departments',
     departmentNote: 'Explore two AI departments',
     features: [
+      { label: 'Chat prompt: 1 credit', state: 'yes' },
+      { label: 'Image or poster: 2 credits', state: 'yes' },
       { label: 'Basic integrations', state: 'yes' },
       { label: 'Company brain (basic)', state: 'yes' },
       { label: 'Standard workflows', state: 'yes' },
@@ -64,7 +67,7 @@ const PLANS: Plan[] = [
       { label: 'Custom integrations', state: 'no' },
       { label: 'Priority support', state: 'no' },
     ],
-    cta: 'Start 7-day free trial',
+    cta: 'View upgrade availability',
   },
   {
     id: 'business',
@@ -84,7 +87,7 @@ const PLANS: Plan[] = [
       { label: 'Custom integrations', state: 'no' },
       { label: 'Priority support', state: 'yes' },
     ],
-    cta: 'Start 7-day free trial',
+    cta: 'View upgrade availability',
     popular: true,
   },
   {
@@ -152,11 +155,13 @@ export default function UpgradeScreen() {
       <View style={styles.header}>
         <ThemedText type="pageTitle">Plans</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Every plan includes the Sales and Marketing AI agents. Higher plans raise how many
-          departments you can run at once.
+          Your free allowance includes 50 credits shared across departments every 24 hours.
+          Chat prompts use 1 credit; images and posters use 2. Explore planned upgrades for more
+          credits and added benefits. Paid upgrades are not available yet.
         </ThemedText>
       </View>
 
+      <AIUsageNotice showUpgrade={false} />
       <View style={styles.grid}>
         {PLANS.map((plan) => (
           <View key={plan.id} style={[styles.cardSlot, { flexBasis: cardBasis }]}>
@@ -210,8 +215,8 @@ export default function UpgradeScreen() {
                 onPress={() =>
                   setNotice(
                     plan.id === 'enterprise'
-                      ? 'No sales inbox is connected yet, so this button has nothing to send to. Wire one up and it becomes a real contact form.'
-                      : `Billing isn't connected, so ${plan.name} can't be started and nothing can be charged. The plan needs a payment provider before this button can do anything.`
+                      ? 'Enterprise upgrades are not available yet. Your current credit allowance will continue to reset every 24 hours.'
+                      : `${plan.name} upgrades are not available yet. Your current credit allowance will continue to reset every 24 hours.`
                   )
                 }
                 style={({ hovered }) => [

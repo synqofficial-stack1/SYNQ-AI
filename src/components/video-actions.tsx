@@ -1,5 +1,6 @@
-import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
 
 import { ModalSheet } from '@/components/modal-sheet';
 import { PostVideo } from '@/components/post-video';
@@ -10,6 +11,7 @@ import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   checkVideo,
+  downloadVideo,
   estimateCost,
   listVideos,
   playbackUrl,
@@ -30,22 +32,34 @@ import {
 // prompt verbatim, which is the other thing people actually want.
 
 const POLL_INTERVAL_MS = 10_000;
-const DURATIONS = [4, 6, 8];
+const DURATIONS = [4, 5, 6, 8, 10, 12, 15] as const;
 
 function VideoPlayer({ video }: { video: GeneratedVideo }) {
   const theme = useTheme();
   const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const player = useVideoPlayer(null);
+  const storagePath = video.storage_path;
 
   useEffect(() => {
     let cancelled = false;
-    playbackUrl(video).then((signed) => {
-      if (!cancelled) setUrl(signed);
-    });
+    playbackUrl(storagePath)
+      .then((signed) => {
+        if (cancelled) return;
+        if (signed) setUrl(signed);
+        else setError('Could not load the private video preview.');
+      })
+      .catch(() => { if (!cancelled) setError('Could not load the private video preview.'); });
     return () => {
       cancelled = true;
     };
-  }, [video]);
+  }, [storagePath]);
 
+  useEffect(() => {
+    if (url) player.replaceAsync(url).catch(() => setError('This video could not be played on this device.'));
+  }, [player, url]);
+
+  if (error) return <ThemedText type="caption" style={{ color: AccentColors.error }}>{error}</ThemedText>;
   if (!url) {
     return (
       <ThemedText type="caption" themeColor="textSecondary">
@@ -54,28 +68,21 @@ function VideoPlayer({ video }: { video: GeneratedVideo }) {
     );
   }
 
-  // React Native has no video primitive and expo-av is not installed, so on web
-  // this is a real <video> element and on a phone it is a link out.
-  if (Platform.OS !== 'web') {
-    return (
-      <ThemedText type="caption" style={{ color: AccentColors.primary }}>
-        Open Synq on a computer to play this.
-      </ThemedText>
-    );
-  }
-
-  return createElement('video', {
-    src: url,
-    controls: true,
-    playsInline: true,
-    style: {
-      width: '100%',
-      maxWidth: video.aspect_ratio === '9:16' ? 260 : '100%',
-      borderRadius: Radius.control,
-      backgroundColor: theme.background,
-      display: 'block',
-    },
-  });
+  return (
+    <VideoView
+      player={player}
+      nativeControls
+      contentFit="contain"
+      fullscreenOptions={{ enable: true }}
+      style={{
+        width: '100%',
+        maxWidth: video.aspect_ratio === '9:16' ? 320 : '100%',
+        aspectRatio: video.aspect_ratio === '9:16' ? 9 / 16 : 16 / 9,
+        borderRadius: Radius.control,
+        backgroundColor: theme.background,
+      }}
+    />
+  );
 }
 
 function VideoCard({
@@ -83,10 +90,24 @@ function VideoCard({
   onRegenerate,
 }: {
   video: GeneratedVideo;
-  onRegenerate: (prompt: string) => void;
+  onRegenerate: (video: GeneratedVideo) => void;
 }) {
   const theme = useTheme();
   const working = video.status === 'pending' || video.status === 'generating';
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  async function saveVideo() {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadVideo(video);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'Could not download this video.');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <View style={[styles.card, { backgroundColor: theme.surfaceRaised, borderColor: theme.border }]}>
@@ -106,20 +127,31 @@ function VideoCard({
           <ThemedText type="caption" style={{ color: AccentColors.error }}>
             {video.error ?? 'That did not work.'}
           </ThemedText>
-          <Pressable accessibilityRole="button" onPress={() => onRegenerate(video.prompt)}>
+          <Pressable accessibilityRole="button" onPress={() => onRegenerate(video)}>
             <ThemedText type="caption" style={{ color: AccentColors.primary }}>
-              Try again
+              Edit prompt and try again
             </ThemedText>
           </Pressable>
         </>
       ) : (
         <>
           <VideoPlayer video={video} />
-          <Pressable accessibilityRole="button" onPress={() => onRegenerate(video.prompt)}>
-            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
-              Make another take
-            </ThemedText>
-          </Pressable>
+          <ThemedText type="caption" themeColor="textSecondary">
+            {video.aspect_ratio} · {video.duration_seconds}s · {video.resolution} · Audio included
+          </ThemedText>
+          <View style={styles.row}>
+            <Pressable accessibilityRole="button" onPress={() => onRegenerate(video)}>
+              <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+                Edit prompt / make another take
+              </ThemedText>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={saveVideo} disabled={downloading}>
+              <ThemedText type="caption" style={{ color: downloading ? theme.textSecondary : AccentColors.primary }}>
+                {downloading ? 'Preparing…' : 'Download / save video'}
+              </ThemedText>
+            </Pressable>
+          </View>
+          {downloadError ? <ThemedText type="caption" style={{ color: AccentColors.error }}>{downloadError}</ThemedText> : null}
           <PostVideo video={video} />
         </>
       )}
@@ -142,6 +174,7 @@ export function VideoActions({
   const [prompt, setPrompt] = useState('');
   const [duration, setDuration] = useState(4);
   const [vertical, setVertical] = useState(true);
+  const resolution = '720p' as const;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -155,11 +188,11 @@ export function VideoActions({
   }, [conversationId]);
 
   useEffect(() => {
-    refresh();
+    const timer = setTimeout(() => { void refresh(); }, 0);
+    return () => clearTimeout(timer);
   }, [refresh]);
 
-  // Generation happens on Google's side, so the only way to learn it finished is
-  // to ask. Polls only while something is actually in flight.
+  // The provider runs this as a durable queue job; poll only while it is active.
   const pending = videos.filter((v) => v.status === 'pending' || v.status === 'generating');
   const pendingIds = pending.map((v) => v.id).join(',');
   const pollingRef = useRef(false);
@@ -191,8 +224,10 @@ export function VideoActions({
     return () => clearInterval(timer);
   }, [pendingIds]);
 
-  function openFor(text: string) {
-    setPrompt(text);
+  function openFor(text: string, previous?: GeneratedVideo) {
+    setPrompt(previous?.prompt ?? text);
+    setDuration(previous?.duration_seconds ?? 4);
+    setVertical((previous?.aspect_ratio ?? '9:16') === '9:16');
     setError(null);
     setOpen(true);
   }
@@ -207,6 +242,7 @@ export function VideoActions({
         prompt: prompt.trim(),
         aspectRatio: vertical ? '9:16' : '16:9',
         durationSeconds: duration,
+        resolution,
       });
       setVideos((current) => [...current, video]);
       setOpen(false);
@@ -224,7 +260,11 @@ export function VideoActions({
       {videos.length > 0 ? (
         <View style={styles.list}>
           {videos.map((video) => (
-            <VideoCard key={video.id} video={video} onRegenerate={openFor} />
+            <VideoCard
+              key={video.id}
+              video={video}
+              onRegenerate={(previous) => openFor(previous.prompt, previous)}
+            />
           ))}
         </View>
       ) : null}
@@ -278,7 +318,9 @@ export function VideoActions({
                   key={seconds}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  onPress={() => setDuration(seconds)}
+                  onPress={() => {
+                    setDuration(seconds);
+                  }}
                   style={[
                     styles.chip,
                     {
@@ -329,9 +371,20 @@ export function VideoActions({
           </View>
         </View>
 
+        <View style={styles.optionRow}>
+          <ThemedText type="caption" themeColor="textSecondary">RESOLUTION</ThemedText>
+          <View style={styles.chips}>
+            <View
+              style={[styles.chip, { backgroundColor: AccentColors.primary, borderColor: AccentColors.primary }]}
+            >
+              <ThemedText type="caption" style={{ color: '#0d0d0d' }}>720p · Seedance limit</ThemedText>
+            </View>
+          </View>
+        </View>
+
         <ThemedText type="caption" themeColor="textSecondary">
-          {duration} seconds costs {estimateCost(duration)}. Veo has no free tier, so billing
-          must be on for your Google key.
+          {duration}s at {resolution}: estimated {estimateCost(duration, resolution)} including fal video and token charges. Seedance generates audio;
+          describe speech, sound effects, or ambience in your prompt. fal.ai usage is billed per generation.
         </ThemedText>
 
         {error ? (
@@ -341,7 +394,7 @@ export function VideoActions({
         ) : null}
 
         <PrimaryButton
-          title={busy ? 'Sending…' : `Film it (${estimateCost(duration)})`}
+          title={busy ? 'Sending…' : `Film it (${estimateCost(duration, resolution)})`}
           onPress={confirm}
           disabled={busy || prompt.trim().length === 0}
         />

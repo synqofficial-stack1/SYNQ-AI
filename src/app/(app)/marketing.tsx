@@ -1,53 +1,48 @@
-import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { router } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { ChatPanel } from '@/components/chat-panel';
+import { DepartmentActivityChart } from '@/components/department-activity-chart';
 import { ThemedText } from '@/components/themed-text';
-import { MaxContentWidth, Spacing, WideBreakpoint } from '@/constants/theme';
-
-// One marketing workflow: brainstorm in chat, turn an approved concept into a
-// reel, then connect a platform and explicitly confirm before it is published.
+import { AccentColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function MarketingScreen() {
-  const { width, height } = useWindowDimensions();
-  const wide = width >= WideBreakpoint;
+  const theme = useTheme();
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <ThemedText type="pageTitle">Marketing</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Brainstorm a reel, make it with Synq AI, then choose Instagram, X, or LinkedIn and
-          confirm before it goes public.
+          Your marketing workspace: campaign chats, generated videos, and social posts.
         </ThemedText>
       </View>
 
-      <ChatPanel
-        kind="campaign"
-        placeholder="What are we trying to sell, and to whom?"
-        emptyHint="Describe your business and who you want to reach, and we can work from there."
-        suggestions={[
-          'Brainstorm three short reel ideas for my business',
-          'Write a 6 second Instagram reel script with a strong hook and a clear CTA',
-          'Turn this product idea into a vertical reel concept and caption',
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/marketing?ai=1' as Parameters<typeof router.push>[0])}
+        style={({ hovered, pressed }) => [
+          styles.chatButton,
+          { opacity: hovered || pressed ? 0.82 : 1 },
         ]}
-        enableVideo
-        // Sizes the message list, not the panel: the header, suggestion row and
-        // input box add roughly 170px on top, and the page itself does not
-        // scroll, so anything taller pushes the input off the bottom of the
-        // screen where it cannot be reached.
-        height={wide ? Math.max(height - 380, 320) : 360}
-      />
+      >
+        <ThemedText type="smallBold" style={{ color: AccentColors.primary }}>✦ Marketing chat</ThemedText>
+      </Pressable>
+
+      <DepartmentActivityChart department="marketing" />
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <ThemedText type="smallBold">Marketing activity</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          Brainstorm campaign ideas, create videos, and manage publishing from Marketing chat.
+        </ThemedText>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    gap: Spacing.four,
-    padding: Spacing.five,
-    width: '100%',
-    maxWidth: MaxContentWidth,
-    alignSelf: 'center',
-  },
+  content: { gap: Spacing.four, padding: Spacing.five, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
   header: { gap: Spacing.one },
+  chatButton: { alignSelf: 'flex-end', paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderWidth: 1, borderRadius: Radius.control, borderColor: AccentColors.primary, backgroundColor: 'rgba(232, 197, 71, 0.07)' },
+  card: { gap: Spacing.two, padding: Spacing.four, borderWidth: 1, borderRadius: Radius.card },
 });

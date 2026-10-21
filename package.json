@@ -17,10 +17,12 @@
     "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.6",
     "expo-router": "~57.0.14",
+    "expo-sharing": "~57.0.23",
     "expo-splash-screen": "~57.0.7",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.2",
     "expo-system-ui": "~57.0.2",
+    "expo-video": "~57.0.5",
     "expo-web-browser": "~57.0.2",
     "lucide-react-native": "^1.46.0",
     "react": "19.2.3",
@@ -40,6 +42,8 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
@@ -51,7 +55,11 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:calls": "node scripts/test-call-reports.cjs",
+    "test:ai-mode": "node scripts/test-ai-mode.cjs",
+    "test:credits": "node scripts/test-ai-credits.cjs",
+    "test:video": "node --experimental-strip-types --test scripts/test-video-generation.mjs"
   },
   "private": true
 }

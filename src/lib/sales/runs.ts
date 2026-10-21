@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { notifyAnalyticsChanged } from '@/lib/analytics-events';
-import type { Prospect, SalesRun, Temperature } from '@/types/database';
+import type { Prospect, SalesCallReport, SalesRun, Temperature } from '@/types/database';
 
 // A run is one instruction: "find 20 salons in Hyderabad and call them about
 // our website service." It moves through five states and stops dead at the
@@ -136,12 +136,14 @@ export type CallStatus = {
 export function callNumber(input: {
   phone: string;
   pitch: string;
+  questions?: string[];
   confirmed: boolean;
 }): Promise<{ prospect_id: string; run_id: string }> {
   return invoke<{ prospect_id: string; run_id: string }>('call-number', {
     action: 'start',
     phone: input.phone,
     pitch: input.pitch,
+    questions: input.questions ?? [],
     confirmed: input.confirmed,
     tz_offset_minutes: -new Date().getTimezoneOffset(),
   }).then((result) => {
@@ -170,6 +172,25 @@ export async function checkCall(prospectId: string): Promise<CallStatus> {
   };
   if (result.state === 'done' || result.state === 'failed') notifyAnalyticsChanged();
   return result;
+}
+
+export type CallReportDetails = {
+  report: SalesCallReport | null;
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  error: string | null;
+  transcript: CallStatus['transcript'];
+  duration: number | null;
+  recording_error: string | null;
+  call_error: string | null;
+};
+
+export function loadCallReport(prospectId: string, retry = false): Promise<CallReportDetails> {
+  return invoke<CallReportDetails>('call-report', { action: retry ? 'retry' : 'get', prospect_id: prospectId });
+}
+
+export async function callRecordingUrl(prospectId: string): Promise<string> {
+  const result = await invoke<{ url: string }>('call-report', { action: 'recording', prospect_id: prospectId });
+  return result.url;
 }
 
 /** Every call that has been attempted, newest first, across all runs. */

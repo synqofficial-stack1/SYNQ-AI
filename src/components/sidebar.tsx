@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { router, usePathname } from 'expo-router';
+import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -120,6 +120,7 @@ export function Sidebar({
 }) {
   const theme = useTheme();
   const pathname = usePathname();
+  const { department, ai } = useGlobalSearchParams<{ department?: string; ai?: string }>();
 
   // Whether to offer the Control Center at all. Hiding it is a courtesy, not a
   // lock: the route and its Edge Function both refuse a non-admin regardless.
@@ -135,7 +136,8 @@ export function Sidebar({
   }, []);
 
   const go = (path: string) => {
-    router.push(path as Parameters<typeof router.push>[0]);
+    const destination = (pathname === '/ai-mode' || ai === '1') && path !== '/ai-mode' ? `${path}?ai=1` : path;
+    router.push(destination as Parameters<typeof router.push>[0]);
     onNavigate?.();
   };
 
@@ -220,7 +222,8 @@ export function Sidebar({
       <View style={styles.section}>
         <SectionLabel>DEPARTMENTS</SectionLabel>
         {departments.map((entry) => {
-          const active = pathname === entry.path || (entry.alsoMatches?.includes(pathname) ?? false);
+          const active = pathname === entry.path || (entry.alsoMatches?.includes(pathname) ?? false)
+            || (pathname === '/ai-mode' && entry.path === (department === 'marketing' ? '/marketing' : '/sales'));
           return (
             <NavItem
               key={entry.path}

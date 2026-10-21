@@ -252,6 +252,7 @@ Supabase Edge Function secrets, by function:
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | `call-number`, `place-calls` |
 | `ELEVENLABS_WEBHOOK_SECRET` | `call-result` |
 | `VEO_MODEL` (optional override) | `generate-video` |
+| `POLLINATIONS_API_KEY`, `POLLINATIONS_IMAGE_MODEL` (optional model override) | `generate-image` (AI Mode images/poster backgrounds) |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | injected by the platform |
 
 Developer-only names also present in `.env.local` for `scripts/`: `ELEVEN_LABS_API`,
@@ -355,6 +356,7 @@ use the Supabase MCP tools instead.
 ## 21. Things Claude must not break
 
 - RLS policies and the `auth.uid()` scoping.
+- Daily AI credits: `chat` and `run-task` cost 1, `generate-image` costs 2, and `save-poster` is free. All use `_shared/ai-credits.ts` and service-only SQL RPCs. The balance is shared per customer and resets after 24 hours. Never replace the server check with a browser counter. See `docs/daily-ai-credits.md`.
 - The calling gates listed in §17.7 and the "no tool dials" rule in `chat/index.ts`.
 - Server-side prompt resolution (never accept a system prompt from the client).
 - `src/lib/supabase.ts` platform storage branch and `detectSessionInUrl` on web only.

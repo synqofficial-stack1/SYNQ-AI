@@ -1,5 +1,14 @@
 project_id = "jjdrlgwpvxyxeruyygli"
 
+[functions.call-number]
+verify_jwt = true
+
+[functions.call-report]
+verify_jwt = true
+
+[functions.call-result]
+verify_jwt = false
+
 [functions.run-task]
 # Supabase checks the caller's session token before the function runs, so an
 # unauthenticated request never reaches our code.
@@ -11,4 +20,7 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.social-post]
+verify_jwt = true
+
+[functions.generate-image]
 verify_jwt = true
