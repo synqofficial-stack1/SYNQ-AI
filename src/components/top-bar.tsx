@@ -1,40 +1,54 @@
-import { useEffect } from 'react';
-import { Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useEffect, type RefObject } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { BellIcon, ChevronDownIcon, MenuIcon, SearchIcon } from '@/components/icons';
+import { BellIcon, ChevronDownIcon, MenuIcon, SearchIcon, SparkIcon } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing } from '@/constants/theme';
+import { Avatar, IconButton, transition, useBreakpoint } from '@/components/ui';
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
+/**
+ * The bar above every page: search, the assistant, notifications and the
+ * account menu. It sits on the page colour with no border so it stays quiet;
+ * the page title lives in each page's own header.
+ */
 export function TopBar({
   title,
+  searchHint,
   showMenuButton,
   onMenu,
   onOpenSearch,
+  onOpenAssistant,
   onOpenNotifications,
+  hasNotifications,
+  notificationsAnchor,
   userLabel,
-  onSignOut,
   menuOpen,
   onToggleMenu,
+  menuAnchor,
 }: {
   title: string;
+  searchHint: string;
   showMenuButton: boolean;
   onMenu: () => void;
   onOpenSearch: () => void;
+  onOpenAssistant: () => void;
   onOpenNotifications: () => void;
+  hasNotifications: boolean;
+  notificationsAnchor: RefObject<View | null>;
   userLabel: string;
-  onSignOut: () => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
+  menuAnchor: RefObject<View | null>;
 }) {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
+  const { width } = useBreakpoint();
   // On a phone there is room for the menu, one search button, the bell and a
-  // face — the search box and the email address both have to go.
+  // face — the search box and the name both have to go.
   const compact = width < 720;
 
-  // Cmd/Ctrl+K is a web affordance; there is no hardware keyboard to listen to
-  // on a phone, so the shortcut and its hint are both web-only.
+  // Ctrl/Cmd+K is a web affordance; a phone has no hardware keyboard to listen
+  // to, so the shortcut and its hint are both web-only.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -47,142 +61,96 @@ export function TopBar({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onOpenSearch]);
 
-  return (
-    <View style={[styles.bar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      {showMenuButton ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open navigation"
-          onPress={onMenu}
-          style={({ hovered }) => [
-            styles.iconButton,
-            {
-              borderColor: theme.border,
-              backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
-            },
-          ]}
-        >
-          <MenuIcon size={18} color={theme.text} />
-        </Pressable>
-      ) : null}
+  const isMac = Platform.OS === 'web' && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
-      {/* On a wide screen the sidebar already says where you are, so the bar
-          gives its width to the search box instead. */}
+  return (
+    <View role="banner" style={[styles.bar, compact && styles.barCompact, { backgroundColor: theme.background }]}>
+      {showMenuButton ? <IconButton icon={MenuIcon} label="Open navigation" onPress={onMenu} variant="outline" /> : null}
+
       {showMenuButton ? (
-        <ThemedText type="small" style={styles.title} numberOfLines={1}>
+        <ThemedText type="cardTitle" style={styles.title} numberOfLines={1}>
           {title}
         </ThemedText>
       ) : null}
 
       {compact ? (
-        <Pressable
-          accessibilityRole="search"
-          accessibilityLabel="Search"
-          onPress={onOpenSearch}
-          style={({ hovered }) => [
-            styles.iconButton,
-            styles.compactSearch,
-            {
-              borderColor: theme.border,
-              backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
-            },
-          ]}
-        >
-          <SearchIcon size={16} color={theme.textSecondary} />
-        </Pressable>
+        <View style={styles.compactActions}>
+          <IconButton icon={SearchIcon} label="Search" onPress={onOpenSearch} variant="outline" />
+        </View>
       ) : (
         <Pressable
           accessibilityRole="search"
-          accessibilityLabel="Search"
+          accessibilityLabel="Search Synq"
+          accessibilityHint="Opens search"
           onPress={onOpenSearch}
           style={({ hovered }) => [
             styles.search,
-            {
-              borderColor: hovered ? 'rgba(232, 197, 71, 0.4)' : theme.border,
-              backgroundColor: theme.surfaceRaised,
-            },
+            transition,
+            { backgroundColor: theme.surface, borderColor: hovered ? theme.borderStrong : theme.border },
           ]}
         >
-          <SearchIcon size={15} color={theme.textSecondary} />
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            numberOfLines={1}
-            style={styles.searchText}
-          >
-            Search anything…
-          </ThemedText>
+          <SearchIcon size={17} color={theme.textSecondary} />
+          <Text numberOfLines={1} style={[styles.searchText, { color: theme.textSecondary }]}>
+            <Text style={{ color: theme.text, fontWeight: '500' }}>Search anything…</Text>
+            {width >= 1100 ? <Text style={{ color: theme.textTertiary }}>{`  ${searchHint}`}</Text> : null}
+          </Text>
           {Platform.OS === 'web' ? (
-            <View style={[styles.kbd, { borderColor: theme.border, backgroundColor: theme.surface }]}>
-              <ThemedText type="caption" themeColor="textSecondary">
-                Ctrl K
-              </ThemedText>
+            <View style={[styles.kbd, { borderColor: theme.border, backgroundColor: theme.surfaceRaised }]}>
+              <Text style={[styles.kbdText, { color: theme.textSecondary }]}>{isMac ? '⌘ K' : 'Ctrl K'}</Text>
             </View>
           ) : null}
         </Pressable>
       )}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Notifications"
-        onPress={onOpenNotifications}
-        style={({ hovered }) => [
-          styles.iconButton,
-          {
-            borderColor: theme.border,
-            backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
-          },
-        ]}
-      >
-        <BellIcon size={17} color={theme.textSecondary} />
-      </Pressable>
+      <View style={styles.right}>
+        {compact ? (
+          <IconButton icon={SparkIcon} label="Ask Synq" onPress={onOpenAssistant} variant="outline" color={theme.accentText} />
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ask Synq, your AI assistant"
+            onPress={onOpenAssistant}
+            style={({ hovered }) => [
+              styles.assistant,
+              transition,
+              { borderColor: theme.accentBorder, backgroundColor: hovered ? theme.accentSoft : theme.surface },
+            ]}
+          >
+            <SparkIcon size={16} color={theme.accentText} />
+            <Text style={[styles.assistantText, { color: theme.text }]}>Ask Synq</Text>
+          </Pressable>
+        )}
 
-      <View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Account menu"
-          accessibilityState={{ expanded: menuOpen }}
-          onPress={onToggleMenu}
-          style={({ hovered }) => [
-            styles.user,
-            {
-              borderColor: theme.border,
-              backgroundColor: hovered || menuOpen ? theme.surfaceRaised : 'transparent',
-            },
-          ]}
-        >
-          <View style={[styles.avatar, { backgroundColor: AccentColors.primaryLight }]}>
-            <ThemedText type="caption" style={styles.avatarText}>
-              {userLabel.slice(0, 1).toUpperCase()}
-            </ThemedText>
-          </View>
-          {compact ? null : (
-            <ThemedText
-              type="caption"
-              themeColor="textSecondary"
-              numberOfLines={1}
-              style={styles.userName}
-            >
-              {userLabel}
-            </ThemedText>
-          )}
-          <ChevronDownIcon size={14} color={theme.textSecondary} />
-        </Pressable>
+        <View ref={notificationsAnchor} collapsable={false}>
+          <IconButton
+            icon={BellIcon}
+            label={hasNotifications ? 'Notifications, new items' : 'Notifications'}
+            onPress={onOpenNotifications}
+            badge={hasNotifications}
+          />
+        </View>
 
-        {menuOpen ? (
-          <View style={[styles.dropdown, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={onSignOut}
-              style={({ hovered }) => [
-                styles.dropdownItem,
-                { backgroundColor: hovered ? theme.surfaceRaised : 'transparent' },
-              ]}
-            >
-              <ThemedText type="small">Log out</ThemedText>
-            </Pressable>
-          </View>
-        ) : null}
+        <View ref={menuAnchor} collapsable={false}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Account menu for ${userLabel}`}
+            accessibilityState={{ expanded: menuOpen }}
+            onPress={onToggleMenu}
+            style={({ hovered }) => [
+              styles.user,
+              transition,
+              { backgroundColor: hovered || menuOpen ? theme.surfaceRaised : 'transparent' },
+            ]}
+          >
+            <Avatar name={userLabel} size={34} />
+            {compact ? null : (
+              <Text numberOfLines={1} style={[styles.userName, { color: theme.text }]}>
+                {userLabel}
+              </Text>
+            )}
+            <ChevronDownIcon size={16} color={theme.textSecondary} />
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -190,79 +158,49 @@ export function TopBar({
 
 const styles = StyleSheet.create({
   bar: {
-    height: 64,
+    height: 72,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    borderBottomWidth: 1,
+    gap: 12,
+    paddingHorizontal: 28,
     zIndex: 10,
   },
-  title: { flexShrink: 1 },
-  iconButton: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
+  barCompact: { height: 64, paddingHorizontal: 16, gap: 8 },
+  title: { flex: 1, minWidth: 0 },
+  compactActions: { marginLeft: 'auto' },
   search: {
     flex: 1,
-    maxWidth: 440,
-    marginHorizontal: 'auto',
+    maxWidth: 780,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    height: 40,
-    paddingHorizontal: Spacing.three,
+    gap: 10,
+    height: 44,
+    paddingHorizontal: 16,
     borderRadius: Radius.pill,
     borderWidth: 1,
   },
-  searchText: { flex: 1 },
-  compactSearch: { marginLeft: 'auto' },
-  kbd: {
-    paddingHorizontal: Spacing.one + 2,
-    paddingVertical: 2,
-    borderRadius: 6,
+  searchText: { flex: 1, fontSize: 14 },
+  kbd: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  kbdText: { fontSize: 11.5, fontWeight: '500' },
+  right: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
+  assistant: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: Radius.pill,
     borderWidth: 1,
   },
+  assistantText: { fontSize: 14, fontWeight: '600' },
   user: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    height: 40,
-    paddingLeft: Spacing.one,
-    paddingRight: Spacing.two,
+    gap: 10,
+    height: 44,
+    paddingLeft: 5,
+    paddingRight: 10,
     borderRadius: Radius.pill,
-    borderWidth: 1,
   },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: '#0d0d0d', fontWeight: 700 },
-  userName: { maxWidth: 180 },
-  dropdown: {
-    position: 'absolute',
-    top: 46,
-    right: 0,
-    minWidth: 180,
-    padding: Spacing.one,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.35,
-    shadowRadius: 24,
-    elevation: 10,
-  },
-  dropdownItem: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Radius.control,
-  },
+  userName: { maxWidth: 170, fontSize: 14.5, fontWeight: '600' },
 });

@@ -6,16 +6,18 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
+  /* Set by the root layout to the theme's text colour; the sign-in scene sets white. */
+  --synq-autofill-text: #171717;
 }
 
 /*
  * Chrome paints its own background on a field it has autofilled, and that
- * colour is not reachable by ordinary CSS — on a dark form it lands as a white
- * or pale-blue slab behind the text. There is no property to turn it off, so
- * this uses the two tricks that do work: clip the painted background to the
- * glyphs, and push its transition so far into the future that it never
- * arrives. Everything else (the field's own dark fill, the border, the focus
- * ring) is drawn by React Native styles as usual.
+ * colour is not reachable by ordinary CSS — it lands as a pale-blue slab behind
+ * the text. There is no property to turn it off, so this uses the two tricks
+ * that do work: clip the painted background to the glyphs, and push its
+ * transition so far into the future that it never arrives. The text colour
+ * comes from a variable because the app is light or dark but the sign-in scene
+ * is always dark.
  */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
@@ -25,7 +27,31 @@ textarea:-webkit-autofill,
 select:-webkit-autofill {
   -webkit-background-clip: text;
   background-clip: text;
-  -webkit-text-fill-color: #ffffff;
-  caret-color: #ffffff;
+  -webkit-text-fill-color: var(--synq-autofill-text);
+  caret-color: var(--synq-autofill-text);
   transition: background-color 100000s ease-in-out 0s;
+}
+
+/* Keyboard focus gets a visible ring; mouse clicks do not. */
+[role='button']:focus-visible,
+[role='link']:focus-visible,
+[role='tab']:focus-visible,
+[role='switch']:focus-visible,
+[role='checkbox']:focus-visible,
+[role='radio']:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #eab938;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

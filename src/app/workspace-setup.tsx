@@ -109,7 +109,7 @@ function SetupForm({
         onPress={() => setAgree((v) => !v)}
         style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}
       >
-        <ThemedText style={{ color: AccentColors.primary }}>
+        <ThemedText themeColor="accentText">
           {agree ? '☑' : '☐'}
         </ThemedText>
         <ThemedText type="caption" style={{ flex: 1 }}>

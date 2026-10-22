@@ -6,7 +6,7 @@ import { TextField } from '@/components/text-field';
 import { AIUsageNotice } from '@/components/ai-usage-notice';
 import { VideoActions } from '@/components/video-actions';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   ChatError,
@@ -201,7 +201,7 @@ export function ChatPanel({
             disabled={sending}
             onPress={() => setHistoryOpen((open) => !open)}
           >
-            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+            <ThemedText type="caption" style={{ color: theme.accentText }}>
               {historyOpen ? 'Hide chats' : `Previous chats${conversations.length ? ` (${conversations.length})` : ''}`}
             </ThemedText>
           </Pressable>
@@ -218,7 +218,7 @@ export function ChatPanel({
               setHistoryOpen(false);
             }}
           >
-            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+            <ThemedText type="caption" style={{ color: theme.accentText }}>
               New chat
             </ThemedText>
           </Pressable>
@@ -291,7 +291,7 @@ export function ChatPanel({
               style={[
                 styles.bubble,
                 turn.role === 'user'
-                  ? { alignSelf: 'flex-end', backgroundColor: theme.backgroundSelected }
+                  ? { alignSelf: 'flex-end', backgroundColor: theme.accentSoft }
                   : { alignSelf: 'flex-start', backgroundColor: theme.surfaceRaised },
               ]}
             >
@@ -309,7 +309,7 @@ export function ChatPanel({
         ) : null}
 
         {error ? (
-          <ThemedText type="caption" style={{ color: AccentColors.error }}>
+          <ThemedText type="caption" style={{ color: theme.danger }}>
             {error}
           </ThemedText>
         ) : null}
@@ -324,12 +324,12 @@ export function ChatPanel({
                 style={({ hovered }) => [
                   styles.navButton,
                   {
-                    borderColor: AccentColors.primary,
+                    borderColor: theme.accentBorder,
                     backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
                   },
                 ]}
               >
-                <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+                <ThemedText type="caption" style={{ color: theme.accentText }}>
                   Go to {PAGE_LABELS[path] ?? path} →
                 </ThemedText>
               </Pressable>
@@ -353,7 +353,7 @@ export function ChatPanel({
               },
             ]}
           >
-            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+            <ThemedText type="caption" style={{ color: theme.accentText }}>
               {saved ? 'Saved ✓' : (saveLabel ?? 'Save this')}
             </ThemedText>
           </Pressable>
@@ -414,7 +414,7 @@ export function ChatPanel({
           }}
           style={[
             styles.send,
-            { backgroundColor: AccentColors.primary, opacity: sending || !input.trim() ? 0.5 : 1 },
+            { backgroundColor: theme.accent, opacity: sending || !input.trim() ? 0.5 : 1 },
           ]}
         >
           <ThemedText type="caption" style={styles.sendText}>
@@ -491,5 +491,5 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderRadius: Radius.control,
   },
-  sendText: { color: '#0d0d0d', fontWeight: 700 },
+  sendText: { color: '#171717', fontWeight: 700 },
 });

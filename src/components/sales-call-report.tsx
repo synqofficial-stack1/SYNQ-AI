@@ -86,7 +86,7 @@ export function SalesCallReport({ prospectId }: { prospectId: string }) {
       ) : <ThemedText type="small" themeColor="textSecondary">{details?.status === 'failed' ? 'Analysis needs another try. Your transcript is saved.' : 'Preparing the transcript and AI report…'}</ThemedText>}
       {details?.error || error ? <ThemedText type="small" style={{ color: AccentColors.error }}>{error ?? details?.error}</ThemedText> : null}
       <Pressable accessibilityRole="button" disabled={busy} onPress={() => refresh(details?.status === 'failed')}>
-        <ThemedText type="small" style={{ color: AccentColors.primary }}>{busy ? 'Refreshing…' : details?.status === 'failed' ? 'Retry analysis' : 'Refresh report'}</ThemedText>
+        <ThemedText type="small" themeColor="accentText">{busy ? 'Refreshing…' : details?.status === 'failed' ? 'Retry analysis' : 'Refresh report'}</ThemedText>
       </Pressable>
       {details?.transcript.length ? (
         <View style={[styles.answer, { backgroundColor: theme.surfaceRaised }]}>

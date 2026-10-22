@@ -152,7 +152,7 @@ function Gap({ title, reason, needed }: { title: string; reason: string; needed:
       <ThemedText type="caption" themeColor="textSecondary">
         {reason}
       </ThemedText>
-      <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+      <ThemedText type="caption" themeColor="accentText">
         Needs: {needed}
       </ThemedText>
     </View>
@@ -363,7 +363,7 @@ export default function CeoScreen() {
             <View style={styles.heroText}>
               <View style={styles.heroBadge}>
                 <CrownIcon size={13} color={AccentColors.primaryLight} />
-                <ThemedText type="caption" style={{ color: AccentColors.primaryLight }}>
+                <ThemedText type="caption" themeColor="accentText">
                   {snapshot.viewer.role === 'ceo' ? 'CEO' : 'ADMIN'}
                 </ThemedText>
               </View>
@@ -416,7 +416,7 @@ export default function CeoScreen() {
                     { backgroundColor: hovered ? theme.backgroundSelected : 'transparent' },
                   ]}
                 >
-                  <ThemedText type="caption" style={styles.hitKind}>
+                  <ThemedText type="caption" style={styles.hitKind} themeColor="accentText">
                     {hit.kind}
                   </ThemedText>
                   <View style={styles.hitBody}>
@@ -713,7 +713,7 @@ export default function CeoScreen() {
                       </ThemedText>
                     </View>
                     <View style={[styles.statusPill, { borderColor: AccentColors.primary }]}>
-                      <ThemedText type="caption" style={{ color: AccentColors.primaryLight }}>
+                      <ThemedText type="caption" themeColor="accentText">
                         {(admin.role ?? '').toUpperCase()}
                       </ThemedText>
                     </View>
@@ -900,7 +900,6 @@ const styles = StyleSheet.create({
   hitKind: {
     width: 52,
     textTransform: 'uppercase',
-    color: AccentColors.primary,
     letterSpacing: 0.8,
   },
   hitBody: { flexGrow: 1, flexShrink: 1, flexBasis: 0 },
