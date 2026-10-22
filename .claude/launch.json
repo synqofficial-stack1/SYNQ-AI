@@ -27,6 +27,19 @@
       "autoPort": false
     },
     {
+      "name": "web-codex",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": [
+        "C:\\Users\\Admin\\Desktop\\SYNQ Ai (codex)\\node_modules\\expo\\bin\\cli",
+        "start",
+        "--web",
+        "--port",
+        "8084"
+      ],
+      "port": 8084,
+      "autoPort": false
+    },
+    {
       "name": "start-clear",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
       "runtimeArgs": [

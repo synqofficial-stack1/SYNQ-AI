@@ -2,7 +2,7 @@
 export const DEPARTMENTS = {
   general: {
     suggestions: [{ title: 'Catch me up', text: 'Catch me up on everything happening across my business and tell me the top 3 priorities today.' }, { title: 'Weekly plan', text: 'Make a simple weekly plan across sales, marketing and operations for my business.' }, { title: 'Grow revenue', text: 'What are the 3 fastest ways to grow revenue for a small business like mine?' }, { title: 'Cut costs', text: 'Where could a small business like mine be wasting money?' }],
-    label: 'Synq AI', role: 'Chief of Staff', color: '#E8B931',
+    label: 'General', role: 'Chief of Staff', color: '#E8B931',
     hello: 'What should we focus on today?',
     sub: 'Priorities across every department, in one place.',
     keywords: /(?!)/, // never auto-detected; used on Dashboard / Control Center

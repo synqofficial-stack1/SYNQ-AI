@@ -129,9 +129,10 @@ assets/images/             icons, splash, synq-logo.jpg
 - **Deployed functions** (verified live 2026-09-21): `run-task`, `chat`, `discover-prospects`,
   `place-calls`, `call-result` (verify_jwt off), `generate-video`, `call-audio`, `call-number`,
   `admin-console`,
-  plus **`social-auth` and `social-post`, which are deployed but no longer exist in this repo**
-  (their code was deleted in commit `5f6bf52`). Treat those two as dead: nothing in the app calls
-  them, and their secrets are not set.
+  plus `social-auth` and `social-post` (back in the repo since marketing publishing returned;
+  `social-auth` redeployed from this repo as v20 on 2026-10-22), `request-ceo-alert` (Settings),
+  the Gmail/email-outreach functions, and `delete-account` (deployed 2026-10-22; the only caller
+  of the service-only `delete_account` SQL function).
 - The Supabase **CLI is not logged in** in this environment; migrations and deploys are done with
   the Supabase MCP tools (`apply_migration`, `deploy_edge_function`, `execute_sql`). Project ref:
   `jjdrlgwpvxyxeruyygli` (the URL and publishable key live in `.env.local`, which is gitignored).
@@ -281,7 +282,8 @@ use the Supabase MCP tools instead.
 
 ## 16. Git conventions
 
-- Current branch: **`redesign`** (also `master`). Recent history is small, focused commits with
+- Default branch: **`main`**; release prep happens on `codex/app-store-readiness`, which now
+  targets **Android / Google Play** first. Recent history is small, focused commits with
   short imperative subjects, e.g. "Sales calls one number; drop social publishing",
   "Marketing is one chat now".
 - Commit messages explain *why* in the body when the change is not obvious.
@@ -349,7 +351,8 @@ use the Supabase MCP tools instead.
 - `campaigns`, `content_items`, `company_facts` tables have no UI.
 - `/upgrade` is a price list with no payments. No settings, notifications, automations or
   integrations screens exist.
-- `social-auth` / `social-post` are deployed on Supabase but deleted from the repo.
+- Release status for Google Play, including what only the owner can do, is tracked in
+  `docs/play-store-release-readiness.md`.
 - Lint reports ~14 pre-existing problems (mostly `react-hooks/set-state-in-effect`) in older
   screens; typecheck and the web build are clean.
 

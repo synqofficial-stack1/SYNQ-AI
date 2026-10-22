@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
 import { SearchIcon } from '@/components/icons';
@@ -7,7 +7,7 @@ import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { connectPlatform, loadConnections, SOCIAL_LABELS, SocialError, type Connection, type SocialPlatform } from '@/lib/social';
+import { connectPlatform, disconnectPlatform, loadConnections, setPublishingEnabled, SOCIAL_LABELS, SocialError, type Connection, type SocialPlatform } from '@/lib/social';
 
 type Category = 'All' | 'Social' | 'Video';
 
@@ -22,7 +22,6 @@ const CATALOG: {
   { platform: 'youtube', category: 'Video', glyph: '▶', description: 'Connect a YouTube channel and publish approved Synq reels as Shorts.' },
   { platform: 'instagram', category: 'Social', glyph: '◎', description: 'Connect an Instagram professional account to publish approved reels.' },
   { platform: 'x', category: 'Social', glyph: '𝕏', description: 'Connect X to publish approved short videos with a caption.' },
-  { platform: 'linkedin', category: 'Social', glyph: 'in', description: 'Connect LinkedIn to publish approved videos to your member profile.' },
 ];
 
 const pushPlugin = (platform: SocialPlatform) =>
@@ -47,6 +46,7 @@ export default function PluginsDirectory() {
   const [busy, setBusy] = useState<SocialPlatform | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [toggleBusy, setToggleBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -94,10 +94,40 @@ export default function PluginsDirectory() {
     }
   }
 
+  async function toggleYouTube(enabled: boolean) {
+    setToggleBusy(true);
+    setActionError(null);
+    try {
+      await setPublishingEnabled('youtube', enabled);
+      await refresh();
+    } catch (error) {
+      setActionError(error instanceof SocialError ? error.message : 'Could not update the YouTube destination.');
+    } finally {
+      setToggleBusy(false);
+    }
+  }
+
+  async function toggleYouTubeConnection(connected: boolean) {
+    if (connected) {
+      await connect('youtube');
+      return;
+    }
+    setBusy('youtube');
+    setActionError(null);
+    try {
+      await disconnectPlatform('youtube');
+      await refresh();
+    } catch (error) {
+      setActionError(error instanceof SocialError ? error.message : 'Could not disconnect YouTube.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <ThemedText type="pageTitle">Plugins</ThemedText>
+        <ThemedText type="pageTitle">Integrations</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           Connect a platform to give Synq permission to publish there. You approve each post before it goes live; Synq verifies the connection first.
         </ThemedText>
@@ -165,22 +195,54 @@ export default function PluginsDirectory() {
                   </ThemedText>
                 </View>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={connected ? `Manage ${SOCIAL_LABELS[plugin.platform]}` : `${reconnect ? 'Reconnect' : 'Connect'} ${SOCIAL_LABELS[plugin.platform]}`}
-                onPress={() => void connect(plugin.platform)}
-                disabled={busy === plugin.platform || (connected && !connection?.verification_error)}
-                style={({ pressed }) => [
-                  styles.connectButton,
-                  { backgroundColor: connected ? theme.surfaceRaised : AccentColors.primary, borderColor: connected ? theme.border : AccentColors.primary, opacity: busy === plugin.platform ? 0.7 : pressed ? 0.8 : 1 },
-                ]}
-              >
-                {busy === plugin.platform ? <ActivityIndicator size="small" color="#111" /> : (
-                  <ThemedText type="smallBold" style={{ color: connected ? theme.textSecondary : '#111' }}>
-                    {connected ? 'Connected' : reconnect ? 'Reconnect' : '+ Connect'}
-                  </ThemedText>
-                )}
-              </Pressable>
+              {plugin.platform === 'youtube' ? (
+                <View style={styles.youtubeControls}>
+                  <View style={styles.destinationToggle}>
+                    <View style={styles.destinationCopy}>
+                      <ThemedText type="smallBold">YouTube account</ThemedText>
+                      <ThemedText type="caption" themeColor="textSecondary">
+                        {connected
+                          ? `Connected${connection?.account_name ? ` · ${connection.account_name}` : ''}`
+                          : reconnect ? 'Authorization expired · reconnect required' : connection?.configured === false ? 'Server setup required' : 'Not connected'}
+                      </ThemedText>
+                    </View>
+                    <Switch
+                      accessibilityLabel={connected ? 'Disconnect YouTube account' : 'Connect YouTube account'}
+                      value={connected}
+                      onValueChange={(value) => void toggleYouTubeConnection(value)}
+                      disabled={busy === plugin.platform || connection?.configured === false}
+                      trackColor={{ false: theme.border, true: AccentColors.primary }}
+                    />
+                  </View>
+                  {connected ? (
+                    <View style={styles.destinationToggle}>
+                      <View style={styles.destinationCopy}>
+                        <ThemedText type="smallBold">Marketing destination</ThemedText>
+                        <ThemedText type="caption" themeColor="textSecondary">{connection?.publishing_enabled ? 'Enabled' : 'Disabled'}</ThemedText>
+                      </View>
+                      <Switch
+                        accessibilityLabel="Enable YouTube publishing destination"
+                        value={Boolean(connection?.publishing_enabled)}
+                        onValueChange={(enabled) => void toggleYouTube(enabled)}
+                        disabled={toggleBusy}
+                        trackColor={{ false: theme.border, true: AccentColors.primary }}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${reconnect ? 'Reconnect' : 'Connect'} ${SOCIAL_LABELS[plugin.platform]}`}
+                  onPress={() => void connect(plugin.platform)}
+                  disabled={busy === plugin.platform}
+                  style={({ pressed }) => [styles.connectButton, { backgroundColor: AccentColors.primary, borderColor: AccentColors.primary, opacity: busy === plugin.platform ? 0.7 : pressed ? 0.8 : 1 }]}
+                >
+                  {busy === plugin.platform ? <ActivityIndicator size="small" color="#111" /> : (
+                    <ThemedText type="smallBold" style={{ color: '#111' }}>{reconnect ? 'Reconnect' : '+ Connect'}</ThemedText>
+                  )}
+                </Pressable>
+              )}
             </View>
           );
         })}
@@ -210,5 +272,8 @@ const styles = StyleSheet.create({
   cardCopy: { flex: 1, gap: Spacing.one },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
   connectButton: { minHeight: 40, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.three, borderRadius: Radius.control, borderWidth: 1, alignSelf: 'flex-end' },
+  destinationToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two, paddingHorizontal: Spacing.one },
+  destinationCopy: { gap: Spacing.one },
+  youtubeControls: { flex: 1, gap: Spacing.two },
   notice: { padding: Spacing.three, borderRadius: Radius.card, borderWidth: 1 },
 });

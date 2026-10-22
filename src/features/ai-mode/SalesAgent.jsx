@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './SalesAgent.css';
 import { PosterForm, composePoster, POSTER_INTENT, guessOccasion } from './Poster.jsx';
-import { createBridge, loadHistory, storageFor, removeCloudChats, refreshImages } from './bridge';
+import { createBridge, loadHistory, storageFor, removeCloudChats, refreshImages, moveCloudChat } from './bridge';
 import { DEPARTMENTS, DEPT_KEYS, detectDept, buildWorkContext } from './departments.js';
 import { ChatPanel, HistoryView, HistoryIcons, exportChats } from './ChatHistory.jsx';
 import { readAttachment, kindOf, MAX_PDFS, MAX_IMAGES, MAX_TOTAL_BYTES, LIMIT_MSG, fmtMB } from './attachments.js';
@@ -223,7 +223,20 @@ export default function SalesAgent({
   // ---- Chat management (used by the Chats panel and the full history view) ----
   const togglePin = (id) => setChats((prev) => prev.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)));
   const renameChat = (id, title) => setChats((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
-  const moveChat = (id, dept) => setChats((prev) => prev.map((c) => (c.id === id ? { ...c, dept } : c)));
+  const moveChat = async (id, dept) => {
+    try {
+      await moveCloudChat(userId, id, dept);
+      setChats((prev) => prev.map((c) => (c.id === id ? { ...c, dept } : c)));
+      if (id === activeId) {
+        setDeptMode(dept);
+        setLastDept(dept);
+        onDeptChange?.(dept);
+      }
+      setSyncError('');
+    } catch {
+      setSyncError('Could not move this chat between departments. Please try again.');
+    }
+  };
   const deleteChats = async (ids) => { try { await removeCloudChats(userId, ids); } catch { setSyncError('Could not delete these chats. Please try again.'); return; } setChats((prev) => prev.filter((c) => !ids.includes(c.id))); if (ids.includes(activeId)) setActiveId(null); };
   function openFromList(id) {
     const c = chats.find((x) => x.id === id);

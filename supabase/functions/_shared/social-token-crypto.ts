@@ -1,6 +1,12 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+function exactBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -24,13 +30,13 @@ async function encryptionKey(): Promise<CryptoKey> {
     throw new Error('SOCIAL_TOKEN_ENCRYPTION_KEY must encode exactly 32 bytes.');
   }
 
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.importKey('raw', exactBuffer(raw), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
 export async function encryptToken(value: string): Promise<string> {
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: nonce },
+    { name: 'AES-GCM', iv: exactBuffer(nonce) },
     await encryptionKey(),
     encoder.encode(value)
   );
@@ -44,9 +50,9 @@ export async function decryptToken(value: string | null): Promise<string | null>
     throw new Error('Stored social login is not encrypted with the current format. Reconnect the account.');
   }
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: base64UrlDecode(nonce) },
+    { name: 'AES-GCM', iv: exactBuffer(base64UrlDecode(nonce)) },
     await encryptionKey(),
-    base64UrlDecode(encrypted)
+    exactBuffer(base64UrlDecode(encrypted))
   );
   return decoder.decode(plaintext);
 }

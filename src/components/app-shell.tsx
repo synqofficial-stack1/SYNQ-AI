@@ -16,7 +16,6 @@ import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { TopBar } from '@/components/top-bar';
 import {
-  AccentColors,
   Radius,
   Spacing,
   WideBreakpoint,
@@ -38,6 +37,7 @@ const TITLES: Record<string, string> = {
   '/follow-ups': 'Sales · Follow-ups',
   '/marketing': 'Marketing',
   '/upgrade': 'Plans',
+  '/settings': 'Settings',
 };
 
 const DESTINATIONS = [
@@ -50,6 +50,7 @@ const DESTINATIONS = [
   { label: 'Follow-ups', path: '/follow-ups' },
   { label: 'Marketing', path: '/marketing' },
   { label: 'Plans', path: '/upgrade' },
+  { label: 'Settings', path: '/settings' },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -57,24 +58,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ ai?: string; department?: string }>();
   const aiOpen = params.ai === '1' || pathname === '/ai-mode';
-  const department =
-    pathname === '/marketing' ||
-    (pathname === '/ai-mode' && params.department === 'marketing')
-      ? 'marketing'
-      : [
-            '/sales',
-            '/import-leads',
-            '/cold-call',
-            '/follow-ups',
-            '/ai-mode',
-          ].includes(pathname)
-        ? 'sales'
-        : 'general';
-  const openAI = () => router.setParams({ ai: '1' });
+  const department = ['general', 'sales', 'marketing'].includes(params.department ?? '')
+    ? params.department as 'general' | 'sales' | 'marketing'
+    : pathname === '/marketing' ? 'marketing'
+      : ['/sales', '/import-leads', '/cold-call', '/follow-ups', '/ai-mode'].includes(pathname) ? 'sales' : 'general';
+  const openAI = () => router.setParams({ ai: '1', department: 'general' });
   const closeAI = () => {
-    if (pathname === '/ai-mode')
-      router.replace(department === 'marketing' ? '/marketing' : '/sales');
-    else router.setParams({ ai: '0' });
+    if (pathname === '/ai-mode') router.replace(department === 'marketing' ? '/marketing' : department === 'sales' ? '/sales' : '/');
+    else router.setParams({ ai: '0', department: undefined });
   };
   const changeDepartment = (value: string) => {
     const path =
@@ -169,36 +160,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </ThemedText>
               </Pressable>
             )}
-            <View style={styles.aiActionRow}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() =>
-                  router.push(
-                    '/sales?compose=1' as Parameters<typeof router.push>[0],
-                  )
-                }
-                style={styles.aiAction}
-              >
-                <ThemedText
-                  type="smallBold"
-                  style={{ color: AccentColors.primary }}
-                >
-                  ✉ Email duty
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={openAI}
-                style={styles.aiAction}
-              >
-                <ThemedText
-                  type="smallBold"
-                  style={{ color: AccentColors.primary }}
-                >
-                  ✦ Open AI mode
-                </ThemedText>
-              </Pressable>
-            </View>
             <View style={{ flex: 1, minHeight: 0 }}>{children}</View>
           </View>
           {/* Only mounted while the menu is open. Wrapping the page itself in a
@@ -316,22 +277,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, flexDirection: 'row' },
   main: { flex: 1 },
   content: { flex: 1, minHeight: 0 },
-  aiActionRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.five,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.one,
-  },
-  aiAction: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Radius.control,
-    borderWidth: 1,
-    borderColor: AccentColors.primary,
-  },
   drawerBackdrop: {
     flex: 1,
     flexDirection: 'row',

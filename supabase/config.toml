@@ -25,6 +25,11 @@ verify_jwt = true
 [functions.generate-image]
 verify_jwt = true
 
+# Vapi cannot send a Supabase user JWT. The function validates its own
+# Authorization bearer credential before processing any webhook payload.
+[functions.vapi-call-result]
+verify_jwt = false
+
 [functions.gmail-auth]
 # OAuth callback has no app session. POST actions validate the user explicitly.
 verify_jwt = false
@@ -35,3 +40,9 @@ verify_jwt = true
 [functions.email-worker]
 # Scheduled calls use an independent server-only secret, checked in the handler.
 verify_jwt = false
+
+[functions.request-ceo-alert]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true

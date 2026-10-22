@@ -29,6 +29,24 @@ export function storageFor(userId: string) {
 
 const kindFor = (dept: string) => dept === 'general' ? 'assistant' : dept === 'marketing' ? 'content' : 'sales_ai';
 
+/** Persist a chat's department on its Supabase conversation when it has a cloud thread. */
+export async function moveCloudChat(userId: string, chatId: string, dept: string): Promise<void> {
+  const store = storageFor(userId);
+  const links = store.get<Record<string, ThreadLink>>('thread-links', {});
+  const link = links[chatId];
+  if (!link) return; // A local-only chat will still keep its department in the user-scoped cache.
+  const kind = kindFor(dept);
+  const { data, error } = await supabase.from('conversations')
+    .update({ kind })
+    .eq('id', link.id)
+    .eq('user_id', userId)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('This chat could not be moved. Refresh your chat history and try again.');
+  store.set('thread-links', { ...links, [chatId]: { ...link, kind } });
+}
+
 export async function loadHistory(userId: string): Promise<Chat[]> {
   const store = storageFor(userId);
   const links = store.get<Record<string, ThreadLink>>('thread-links', {});

@@ -97,21 +97,6 @@ function NavItem({
   );
 }
 
-function SoonTag() {
-  const theme = useTheme();
-  return (
-    <View style={[styles.soon, { borderColor: theme.border }]}>
-      <ThemedText
-        type="caption"
-        themeColor="textSecondary"
-        style={styles.soonText}
-      >
-        Soon
-      </ThemedText>
-    </View>
-  );
-}
-
 function SectionLabel({ children }: { children: string }) {
   return (
     <ThemedText
@@ -316,9 +301,8 @@ export function Sidebar({
         <NavItem
           label="Settings"
           icon={<GearIcon size={17} color={theme.textSecondary} />}
-          active={false}
-          disabled
-          trailing={<SoonTag />}
+          active={pathname === '/settings'}
+          onPress={() => go('/settings')}
         />
       </View>
 
@@ -420,14 +404,6 @@ const styles = StyleSheet.create({
   },
   navIcon: { width: 20, alignItems: 'center' },
   navLabel: { flex: 1 },
-  soon: {
-    paddingHorizontal: Spacing.one + 2,
-    paddingVertical: 1,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
-  soonText: { fontSize: 10 },
-
   spacer: { flex: 1, minHeight: Spacing.three },
 
   upgradeCard: {

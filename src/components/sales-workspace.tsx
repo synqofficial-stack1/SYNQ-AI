@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { EmailOutreach } from '@/components/email-outreach';
 import { DepartmentActivityChart } from '@/components/department-activity-chart';
+import { SalesMeetings } from '@/components/sales-meetings';
 import { ModalSheet } from '@/components/modal-sheet';
 import { PrimaryButton } from '@/components/primary-button';
 import { TextField } from '@/components/text-field';
@@ -20,6 +21,9 @@ import { AccentColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { listLeads } from '@/lib/leads';
+import { loadSalesMeetings } from '@/lib/organization';
+import { parseDealsTarget } from '@/lib/sales-target-validation';
+import { listCampaigns, type OutreachCampaign } from '@/lib/outreach';
 import type { Lead } from '@/types/database';
 import {
   STAGES,
@@ -40,16 +44,10 @@ import {
   type SalesTarget,
 } from '@/lib/sales-workspace';
 
-const TABS = [
-  'Pipeline',
-  'Next actions',
-  'Meetings',
-  'Quotations',
-  'Targets',
-  'Email duties',
-] as const;
-type Tab = (typeof TABS)[number];
+type Tab = 'Overview' | 'Pipeline' | 'Next actions' | 'Meetings' | 'Quotations' | 'Targets' | 'Email duties';
+const DISPLAY_TABS: readonly Tab[] = ['Overview', 'Meetings', 'Targets', 'Email duties'];
 const VIEWS: Record<Tab, string> = {
+  Overview: 'overview',
   Pipeline: 'pipeline',
   'Next actions': 'actions',
   Meetings: 'meetings',
@@ -161,10 +159,14 @@ export function SalesWorkspace() {
   const { identity } = useWorkspace();
   const params = useLocalSearchParams<{ compose?: string; view?: string }>();
   const emailVisible = params.compose === '1' || params.view === 'email';
-  const current: Tab = emailVisible
-    ? 'Email duties'
-    : TABS.find((t) => VIEWS[t] === params.view) || 'Pipeline';
+  const current: Tab = emailVisible ? 'Email duties'
+    : DISPLAY_TABS.find((t) => VIEWS[t] === params.view) || 'Overview';
   const [rows, setRows] = useState<Deal[]>([]),
+    [leadRows, setLeadRows] = useState<Lead[]>([]),
+    [campaignRows, setCampaignRows] = useState<OutreachCampaign[]>([]),
+    [emailError, setEmailError] = useState(''),
+    [meetingRows, setMeetingRows] = useState<Awaited<ReturnType<typeof loadSalesMeetings>>>([]),
+    [meetingError, setMeetingError] = useState(''),
     [target, setTarget] = useState<SalesTarget | null>(null),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
@@ -191,8 +193,9 @@ export function SalesWorkspace() {
     [targetError, setTargetError] = useState('');
   const refresh = useCallback(async () => {
     try {
-      const [deals, goal] = await Promise.all([loadSales(), loadTarget(month)]);
+      const [deals, goal, leads] = await Promise.all([loadSales(), loadTarget(month), listLeads()]);
       setRows(deals);
+      setLeadRows(leads);
       setTarget(goal);
       setError('');
       setLoaded(true);
@@ -205,12 +208,14 @@ export function SalesWorkspace() {
     let live = true;
     const load = async () => {
       try {
-        const [deals, goal] = await Promise.all([
+        const [deals, goal, leads] = await Promise.all([
           loadSales(),
           loadTarget(month),
+          listLeads(),
         ]);
         if (live) {
           setRows(deals);
+          setLeadRows(leads);
           setTarget(goal);
           setError('');
           setLoaded(true);
@@ -229,6 +234,25 @@ export function SalesWorkspace() {
       clearInterval(timer);
     };
   }, [month]);
+  useEffect(() => {
+    let live = true;
+    const load = () => void loadSalesMeetings().then((items) => {
+      if (live) { setMeetingRows(items); setMeetingError(''); }
+    }).catch((cause: unknown) => { if (live) setMeetingError(cause instanceof Error ? cause.message : 'Could not load meeting activity.'); });
+    load();
+    const timer = setInterval(load, 30000);
+    return () => { live = false; clearInterval(timer); };
+  }, []);
+  useEffect(() => {
+    let live = true;
+    const initial = setTimeout(() => void listCampaigns().then((items) => {
+      if (live) { setCampaignRows(items); setEmailError(''); }
+    }).catch((cause: unknown) => { if (live) setEmailError(cause instanceof Error ? cause.message : 'Could not load email-duty status.'); }), 0);
+    const timer = setInterval(() => void listCampaigns().then((items) => {
+      if (live) { setCampaignRows(items); setEmailError(''); }
+    }).catch(() => {}), 30000);
+    return () => { live = false; clearTimeout(initial); clearInterval(timer); };
+  }, []);
   const stats = salesSummary(rows, today);
   const filtered = rows.filter(
     (d) =>
@@ -331,18 +355,18 @@ export function SalesWorkspace() {
     const reason = deal.lost_reason.trim().toLowerCase();
     reasons.set(reason, (reasons.get(reason) || 0) + 1);
   }
-  const compactMoney = (value: number) =>
-    value >= 10000000
-      ? `₹${+(value / 10000000).toFixed(1)}Cr`
-      : value >= 100000
-        ? `₹${+(value / 100000).toFixed(1)}L`
-        : value >= 1000
-          ? `₹${+(value / 1000).toFixed(1)}k`
-          : money(value);
   const progress =
     target && Number(target.revenue_goal) > 0
       ? (stats.wonValue / Number(target.revenue_goal)) * 100
       : null;
+  const upcomingMeetings = meetingRows.filter((meeting) => meeting.starts_at > new Date().toISOString()).length
+    + stats.meetings.filter((deal) => deal.meeting_on! >= today).length;
+  const totalMeetings = meetingRows.length + rows.filter((deal) => deal.meeting_on).length;
+  const targetChecks = [
+    target && Number(target.revenue_goal) > 0 ? stats.wonValue >= Number(target.revenue_goal) : null,
+    target && Number(target.deals_goal) > 0 ? stats.won.length >= Number(target.deals_goal) : null,
+  ].filter((value): value is boolean => value !== null);
+  const targetsMet = targetChecks.length ? `${targetChecks.filter(Boolean).length} / ${targetChecks.length}` : 'Not set';
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       <View
@@ -356,8 +380,7 @@ export function SalesWorkspace() {
           </Small>
         </View>
         <View style={styles.wrap}>
-          <Action label="Refresh" onPress={refresh} />
-          <Action label="+ Add deal" active onPress={() => open()} />
+          <Action label="Email duties" active onPress={() => selectTab('Email duties')} />
         </View>
       </View>
       <ScrollView
@@ -366,7 +389,7 @@ export function SalesWorkspace() {
         style={{ flexGrow: 0, flexShrink: 0, height: 60 }}
         contentContainerStyle={styles.tabs}
       >
-        {TABS.map((t) => (
+        {DISPLAY_TABS.map((t) => (
           <Action
             key={t}
             label={t}
@@ -389,7 +412,7 @@ export function SalesWorkspace() {
               open();
               setDraft(input);
               setBaseline(JSON.stringify(input));
-              router.setParams({ view: 'pipeline', compose: '0' });
+              router.setParams({ view: 'overview', compose: '0' });
             } catch (e) {
               setError((e as Error).message);
             }
@@ -430,27 +453,10 @@ export function SalesWorkspace() {
               <>
                 <View style={styles.metrics}>
                   {[
-                    {
-                      label: 'OPEN PIPELINE',
-                      value:
-                        width < 600
-                          ? compactMoney(stats.pipeline)
-                          : money(stats.pipeline),
-                      detail: `${stats.open.length} open deals${stats.unknownValue ? ' · ' + stats.unknownValue + ' without a value' : ''}`,
-                    },
-                    {
-                      label: 'WON THIS MONTH',
-                      value:
-                        width < 600
-                          ? compactMoney(stats.wonValue)
-                          : money(stats.wonValue),
-                      detail: `${stats.won.length} deals · recorded deal value`,
-                    },
-                    {
-                      label: 'DUE NOW',
-                      value: String(stats.due.length),
-                      detail: 'Next actions due today or overdue',
-                    },
+                    { label: 'TOTAL MEETINGS', value: String(totalMeetings), detail: meetingError ? 'Meeting list unavailable' : 'All recorded meetings' },
+                    { label: 'TARGETS MET', value: targetsMet, detail: targetChecks.length ? 'Revenue and deal targets reached' : 'Set targets in the Targets tab' },
+                    { label: 'EMAIL DUTIES', value: String(campaignRows.length), detail: emailError ? 'Email duty status unavailable' : 'All email duties in this workspace' },
+                    { label: 'UPCOMING MEETINGS', value: String(upcomingMeetings), detail: 'Scheduled for today or later' },
                   ].map((m) => (
                     <View
                       key={m.label}
@@ -466,17 +472,30 @@ export function SalesWorkspace() {
                         </ThemedText>
                         <Small>
                           {width < 600
-                            ? m.label === 'OPEN PIPELINE'
-                              ? stats.open.length + ' deals'
-                              : m.label === 'WON THIS MONTH'
-                                ? stats.won.length + ' won'
-                                : 'Due / overdue'
+                            ? m.detail
                             : m.detail}
                         </Small>
                       </Box>
                     </View>
                   ))}
                 </View>
+                {current === 'Overview' && (
+                  <>
+                    <Box>
+                      <ThemedText type="sectionTitle">Recent Sales activity</ThemedText>
+                      {[...leadRows.map((lead) => ({ label: `Lead · ${lead.name || lead.company || lead.email || 'New contact'}`, at: lead.created_at })),
+                        ...meetingRows.map((meeting) => ({ label: `Meeting · ${meeting.title}`, at: meeting.created_at })),
+                        ...rows.map((deal) => ({ label: `Sales record · ${deal.title}`, at: deal.updated_at }))]
+                        .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6).map((item, index) => (
+                          <Small key={`${item.at}-${index}`}>{item.label} · {new Date(item.at).toLocaleString()}</Small>
+                        ))}
+                      {!leadRows.length && !rows.length ? <Small>No Sales activity yet. New leads and recorded meetings will appear here.</Small> : null}
+                      {meetingError ? <ThemedText accessibilityRole="alert" style={{ color: AccentColors.error }}>{meetingError}</ThemedText> : null}
+                      <Small>{emailError ? 'Email duty status unavailable.' : `${campaignRows.filter((campaign) => campaign.status === 'active').length} active email duties · ${campaignRows.filter((campaign) => campaign.status === 'paused').length} paused`}</Small>
+                      {emailError ? <ThemedText accessibilityRole="alert" style={{ color: AccentColors.error }}>{emailError}</ThemedText> : null}
+                    </Box>
+                  </>
+                )}
                 {current === 'Pipeline' && (
                   <>
                     <View style={styles.between}>
@@ -516,22 +535,15 @@ export function SalesWorkspace() {
                             ? 'No matching deals'
                             : archived
                               ? 'No archived deals'
-                              : 'Your next customer starts here'}
+                            : 'No active Sales records'}
                         </ThemedText>
                         <Small>
                           {search
                             ? 'Try a different name or email address.'
                             : archived
                               ? 'Archived deals remain saved and can be restored.'
-                              : 'Add an opportunity, its value, and the next step. You can bring a contact from your CRM into a deal.'}
+                              : 'Your saved leads and outreach remain available in the Sales workspace.'}
                         </Small>
-                        {!search && !archived && (
-                          <Action
-                            label="Create your first deal"
-                            active
-                            onPress={() => open()}
-                          />
-                        )}
                       </Box>
                     ) : (
                       <ScrollView
@@ -600,7 +612,7 @@ export function SalesWorkspace() {
                         <Pressable
                           key={d.id}
                           accessibilityRole="button"
-                          onPress={() => open(d, 'Next steps')}
+                          onPress={() => open(d, 'Meeting')}
                           style={[
                             styles.listRow,
                             { borderColor: theme.border },
@@ -624,61 +636,16 @@ export function SalesWorkspace() {
                       </Small>
                     )}
                     <Action
-                      label="Plan an action"
-                      onPress={() => open(undefined, 'Next steps')}
+                      label="Plan a meeting"
+                      onPress={() => open(undefined, 'Meeting')}
                     />
                   </Box>
                 )}
                 {current === 'Meetings' && (
-                  <Box>
-                    <ThemedText type="sectionTitle">
-                      Meetings & demos
-                    </ThemedText>
-                    <Small>
-                      Track appointments and outcomes. These entries do not send
-                      calendar invitations.
-                    </Small>
-                    {stats.active
-                      .filter((d) => d.meeting_on)
-                      .sort((a, b) =>
-                        (a.meeting_on! + a.meeting_time).localeCompare(
-                          b.meeting_on! + b.meeting_time,
-                        ),
-                      )
-                      .map((d) => (
-                        <Pressable
-                          key={d.id}
-                          accessibilityRole="button"
-                          onPress={() => open(d, 'Next steps')}
-                          style={[
-                            styles.listRow,
-                            { borderColor: theme.border },
-                          ]}
-                        >
-                          <ThemedText type="smallBold">{d.title}</ThemedText>
-                          <Small>
-                            {d.meeting_on} {d.meeting_time} ·{' '}
-                            {d.meeting_status.replace('_', ' ')}
-                            {d.meeting_on! < today &&
-                            d.meeting_status === 'planned'
-                              ? ' · Update outcome'
-                              : ''}
-                          </Small>
-                          {!!d.meeting_notes && (
-                            <Small>{d.meeting_notes}</Small>
-                          )}
-                        </Pressable>
-                      ))}
-                    {!stats.active.some((d) => d.meeting_on) && (
-                      <Small>
-                        No meetings recorded yet. Schedule one against a deal.
-                      </Small>
-                    )}
-                    <Action
-                      label="Add meeting to a new deal"
-                      onPress={() => open(undefined, 'Next steps')}
-                    />
-                  </Box>
+                  <SalesMeetings
+                    legacyMeetings={stats.active.filter((deal) => deal.meeting_on)}
+                    onEditLegacy={(deal) => open(deal, 'Meeting')}
+                  />
                 )}
                 {current === 'Quotations' && (
                   <Box>
@@ -860,7 +827,7 @@ export function SalesWorkspace() {
           <View
             style={[styles.wrap, { justifyContent: 'center', padding: 16 }]}
           >
-            {['Deal', 'Next steps', 'Quotation'].map((part) => (
+            {['Deal', 'Meeting'].map((part) => (
               <Action
                 key={part}
                 label={part}
@@ -1060,37 +1027,8 @@ export function SalesWorkspace() {
                 )}
               </>
             )}
-            {section === 'Next steps' && (
+            {section === 'Meeting' && (
               <>
-                <ThemedText type="sectionTitle">Next action</ThemedText>
-                <Field label="What needs to happen next?">
-                  <TextField
-                    accessibilityLabel="Next action"
-                    placeholder="e.g. Send the revised proposal"
-                    value={draft.next_action}
-                    maxLength={500}
-                    onChangeText={(v) => field('next_action', v)}
-                  />
-                </Field>
-                <Field label="Due date · YYYY-MM-DD">
-                  <TextField
-                    accessibilityLabel="Next action due date"
-                    placeholder="YYYY-MM-DD"
-                    value={draft.next_action_on || ''}
-                    maxLength={10}
-                    onChangeText={(v) => field('next_action_on', v || null)}
-                  />
-                </Field>
-                <Action
-                  label="Clear completed action"
-                  onPress={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      next_action: '',
-                      next_action_on: null,
-                    }))
-                  }
-                />
                 <ThemedText type="sectionTitle">Meeting / demo</ThemedText>
                 <View style={styles.wrap}>
                   <Field label="Meeting date · YYYY-MM-DD">
@@ -1279,7 +1217,7 @@ export function SalesWorkspace() {
                 identity!.membership!.organization_id,
                 month,
                 Number(goalRevenue),
-                Number(goalDeals),
+                parseDealsTarget(goalDeals),
                 target,
               );
               setTargetOpen(false);
