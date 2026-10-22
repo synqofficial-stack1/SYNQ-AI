@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { PrimaryButton } from '@/components/primary-button';
+import { CalendarIcon } from '@/components/icons';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors } from '@/constants/theme';
+import { Avatar, Button, ButtonRow, Card, EmptyState, Field, IconTile, InlineAlert, ListRow, SectionHeader, Split, transition } from '@/components/ui';
+import { DataColors, Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
 import type { Deal } from '@/lib/sales-workspace';
 import { activeWorkspaceMembers, createSalesMeeting, loadSalesMeetings, newWorkspaceRecordId, updateSalesMeetingAttendees, type WorkspaceMember } from '@/lib/organization';
+import { meetingTime } from '@/lib/workspace';
 
 type Meeting = Awaited<ReturnType<typeof loadSalesMeetings>>[number];
 function defaults() {
@@ -74,49 +76,177 @@ export function SalesMeetings({ legacyMeetings = [], onEditLegacy }: { legacyMee
   function toggle(ids: string[], setIds: (value: string[]) => void, id: string) {
     setIds(ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id]);
   }
-  const box = { padding: 20, gap: 14, borderWidth: 1 as const, borderColor: theme.border, borderRadius: 14, backgroundColor: theme.surface };
+  const me = members.find((member) => member.is_current_user)?.user_id ?? '';
+  const nowIso = new Date().toISOString();
+  const upcoming = meetings.filter((meeting) => meeting.starts_at > nowIso);
+  const past = meetings.filter((meeting) => meeting.starts_at <= nowIso);
+
   function memberPicker(ids: string[], update: (value: string[]) => void) {
-    return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{members.filter((member) => !member.is_current_user).map((member) => {
-      const active = ids.includes(member.user_id);
-      return <Pressable key={member.user_id} accessibilityRole="checkbox" accessibilityState={{ checked: active }} onPress={() => toggle(ids, update, member.user_id)} style={{ padding: 10, borderWidth: 1, borderColor: active ? AccentColors.primary : theme.border, borderRadius: 9 }}><ThemedText type="caption">{member.display_name}</ThemedText></Pressable>;
-    })}{members.length <= 1 ? <ThemedText type="caption" themeColor="textSecondary">No other active teammates are available yet.</ThemedText> : null}</View>;
-  }
-  return <View style={{ gap: 18 }}>
-    <View style={box}>
-      <ThemedText type="sectionTitle">Create a meeting</ThemedText>
-      <ThemedText type="caption" themeColor="textSecondary">Choose teammates who can see this meeting and its complete attendee list. No calendar invitation or email is sent.</ThemedText>
-      <TextField accessibilityLabel="Meeting title" placeholder="Meeting title" value={title} onChangeText={setTitle} maxLength={160} />
-      <TextField accessibilityLabel="Meeting details" placeholder="Details (optional)" value={description} onChangeText={setDescription} multiline maxLength={3000} />
-      <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
-        <View style={{ flex: 1, minWidth: 170 }}><TextField accessibilityLabel="Meeting date" placeholder="YYYY-MM-DD" value={date} onChangeText={(value) => setDateTime((current) => ({ ...current, date: value }))} maxLength={10} /></View>
-        <View style={{ flex: 1, minWidth: 120 }}><TextField accessibilityLabel="Meeting time" placeholder="HH:mm" value={time} onChangeText={(value) => setDateTime((current) => ({ ...current, time: value }))} maxLength={5} /></View>
+    const others = members.filter((member) => !member.is_current_user);
+    if (!others.length) {
+      return (
+        <ThemedText type="caption" themeColor="textSecondary">
+          No other active teammates are available yet.
+        </ThemedText>
+      );
+    }
+    return (
+      <View style={styles.people}>
+        {others.map((member) => {
+          const active = ids.includes(member.user_id);
+          return (
+            <Pressable
+              key={member.user_id}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: active }}
+              accessibilityLabel={member.display_name}
+              onPress={() => toggle(ids, update, member.user_id)}
+              style={({ hovered }) => [
+                styles.person,
+                transition,
+                {
+                  borderColor: active ? theme.accentHover : theme.border,
+                  backgroundColor: active ? theme.accentSoft : hovered ? theme.surfaceRaised : theme.surface,
+                },
+              ]}
+            >
+              <Avatar name={member.display_name} size={24} tone={active ? 'accent' : 'neutral'} />
+              <ThemedText type="caption" style={{ fontWeight: active ? '600' : '500' }}>
+                {member.display_name}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
       </View>
-      <ThemedText type="caption" themeColor="textSecondary">Local time zone · saved as UTC · defaults to the next local hour. Change the date or time before saving if needed.</ThemedText>
-      <ThemedText type="caption" themeColor="textSecondary">Invite teammates</ThemedText>
-      {memberPicker(selected, setSelected)}
-      <PrimaryButton title="Create meeting" loading={busy} disabled={busy || !title.trim()} onPress={() => void create()} />
-    </View>
-    {legacyMeetings.length ? <View style={box}>
-      <ThemedText type="sectionTitle">Previously recorded meetings</ThemedText>
-      <ThemedText type="caption" themeColor="textSecondary">These meeting notes were saved with existing Sales records. They remain editable and have no attendee invitations.</ThemedText>
-      {legacyMeetings.map((deal) => <View key={deal.id} style={{ gap: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.border }}>
-        <ThemedText type="smallBold">{deal.title}</ThemedText>
-        <ThemedText type="caption" themeColor="textSecondary">{deal.meeting_on} {deal.meeting_time} · {deal.meeting_status.replace('_', ' ')}</ThemedText>
-        {deal.meeting_notes ? <ThemedText type="caption">{deal.meeting_notes}</ThemedText> : null}
-        {onEditLegacy ? <Pressable accessibilityRole="button" onPress={() => onEditLegacy(deal)}><ThemedText type="caption" style={{ color: AccentColors.primary }}>Edit meeting details</ThemedText></Pressable> : null}
-      </View>)}
-    </View> : null}
-    <View style={box}>
-      <ThemedText type="sectionTitle">Meetings</ThemedText>
-      {!meetings.length ? <ThemedText type="caption" themeColor="textSecondary">No meetings yet. Meetings you organize or attend will appear here.</ThemedText> : meetings.map((meeting) => <View key={meeting.id} style={{ gap: 7, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border }}>
-        <ThemedText type="smallBold">{meeting.title}</ThemedText>
-        <ThemedText type="caption" themeColor="textSecondary">{new Date(meeting.starts_at).toLocaleString()} · Organized by {names.get(meeting.organizer_id) || 'Team member'}</ThemedText>
-        {meeting.description ? <ThemedText type="caption">{meeting.description}</ThemedText> : null}
-        <ThemedText type="caption">Attendees: {[meeting.organizer_id, ...meeting.attendee_ids].map((id) => `${names.get(id) || 'Team member'}${id === meeting.organizer_id ? ' (organizer)' : ''}`).join(', ')}</ThemedText>
-        {(owner || meeting.organizer_id === (members.find((member) => member.is_current_user)?.user_id ?? '')) ? <Pressable accessibilityRole="button" onPress={() => { setEditing(meeting.id); setEditingSelected(meeting.attendee_ids); }}><ThemedText type="caption" style={{ color: AccentColors.primary }}>Edit attendees</ThemedText></Pressable> : null}
-        {editing === meeting.id ? <View style={{ gap: 10 }}>{memberPicker(editingSelected, setEditingSelected)}<PrimaryButton title="Save attendees" loading={busy} disabled={busy} onPress={() => void saveAttendees(meeting.id)} /><Pressable accessibilityRole="button" onPress={() => setEditing(null)}><ThemedText type="caption" themeColor="textSecondary">Cancel</ThemedText></Pressable></View> : null}
-      </View>)}
-    </View>
-    {error ? <ThemedText accessibilityRole="alert" style={{ color: AccentColors.error }}>{error}</ThemedText> : null}
-  </View>;
+    );
+  }
+
+  const meetingRow = (meeting: Meeting, index: number, list: Meeting[]) => {
+    const canEditAttendees = owner || meeting.organizer_id === me;
+    return (
+      <View key={meeting.id} style={[styles.meeting, index < list.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
+        <View style={styles.meetingHead}>
+          <IconTile icon={CalendarIcon} color={DataColors.marketing} size={38} />
+          <View style={styles.meetingText}>
+            <ThemedText type="smallBold">{meeting.title}</ThemedText>
+            <ThemedText type="caption" themeColor="textSecondary">
+              {meetingTime(meeting.starts_at)} · Organised by {meeting.organizer_id === me ? 'you' : names.get(meeting.organizer_id) || 'Team member'}
+            </ThemedText>
+          </View>
+          {canEditAttendees && editing !== meeting.id ? (
+            <Button
+              label="Edit attendees"
+              size="sm"
+              onPress={() => {
+                setEditing(meeting.id);
+                setEditingSelected(meeting.attendee_ids);
+              }}
+            />
+          ) : null}
+        </View>
+        {meeting.description ? <ThemedText type="small">{meeting.description}</ThemedText> : null}
+        <ThemedText type="caption" themeColor="textSecondary">
+          Attendees:{' '}
+          {[meeting.organizer_id, ...meeting.attendee_ids]
+            .map((id) => `${id === me ? 'You' : names.get(id) || 'Team member'}${id === meeting.organizer_id ? ' (organiser)' : ''}`)
+            .join(', ')}
+        </ThemedText>
+        {editing === meeting.id ? (
+          <Card tone="muted">
+            <ThemedText type="label">Invite teammates</ThemedText>
+            {memberPicker(editingSelected, setEditingSelected)}
+            <ButtonRow>
+              <Button label="Save attendees" variant="primary" size="sm" loading={busy} disabled={busy} onPress={() => void saveAttendees(meeting.id)} />
+              <Button label="Cancel" size="sm" onPress={() => setEditing(null)} />
+            </ButtonRow>
+          </Card>
+        ) : null}
+      </View>
+    );
+  };
+
+  return (
+    <Split
+      ratio={1.25}
+      main={
+        <>
+          <Card>
+            <SectionHeader title="Upcoming meetings" subtitle="Meetings you organise or attend." />
+            {!upcoming.length ? (
+              <EmptyState icon={CalendarIcon} title="No upcoming meetings" description="Plan one with the form; invited teammates will see it here too." compact />
+            ) : (
+              <View>{upcoming.map(meetingRow)}</View>
+            )}
+          </Card>
+          {past.length ? (
+            <Card>
+              <SectionHeader title="Past meetings" />
+              <View>{past.slice().reverse().map(meetingRow)}</View>
+            </Card>
+          ) : null}
+          {legacyMeetings.length ? (
+            <Card>
+              <SectionHeader
+                title="Meetings saved on opportunities"
+                subtitle="Notes recorded with existing Sales records. They stay editable and have no attendee invitations."
+              />
+              <View>
+                {legacyMeetings.map((deal, index) => (
+                  <ListRow
+                    key={deal.id}
+                    title={deal.title}
+                    subtitle={`${deal.meeting_on} ${deal.meeting_time} · ${deal.meeting_status.replace('_', ' ')}${deal.meeting_notes ? ` · ${deal.meeting_notes}` : ''}`}
+                    leading={<IconTile icon={CalendarIcon} color={DataColors.neutral} size={36} />}
+                    onPress={onEditLegacy ? () => onEditLegacy(deal) : undefined}
+                    accessibilityLabel={`Edit meeting details for ${deal.title}`}
+                    divider={index < legacyMeetings.length - 1}
+                  />
+                ))}
+              </View>
+            </Card>
+          ) : null}
+        </>
+      }
+      side={
+        <Card>
+          <SectionHeader title="Plan a meeting" subtitle="Choose teammates who can see this meeting and its attendee list. No calendar invitation or email is sent." />
+          <Field label="Meeting title" required count={{ value: title.length, max: 160 }}>
+            <TextField accessibilityLabel="Meeting title" placeholder="e.g. Demo with Blue Tokai" value={title} onChangeText={setTitle} maxLength={160} />
+          </Field>
+          <Field label="Details" helper="Optional.">
+            <TextField accessibilityLabel="Meeting details" placeholder="Agenda, link or location" value={description} onChangeText={setDescription} multiline maxLength={3000} />
+          </Field>
+          <View style={styles.when}>
+            <View style={styles.whenCell}>
+              <Field label="Date" helper="YYYY-MM-DD">
+                <TextField accessibilityLabel="Meeting date" placeholder="YYYY-MM-DD" value={date} onChangeText={(value) => setDateTime((current) => ({ ...current, date: value }))} maxLength={10} />
+              </Field>
+            </View>
+            <View style={styles.whenCell}>
+              <Field label="Time" helper="HH:mm, your time zone">
+                <TextField accessibilityLabel="Meeting time" placeholder="HH:mm" value={time} onChangeText={(value) => setDateTime((current) => ({ ...current, time: value }))} maxLength={5} />
+              </Field>
+            </View>
+          </View>
+          <ThemedText type="caption" themeColor="textSecondary">
+            Defaults to the next hour. Saved in your local time zone.
+          </ThemedText>
+          <ThemedText type="label">Invite teammates</ThemedText>
+          {memberPicker(selected, setSelected)}
+          {error ? <InlineAlert tone="danger" message={error} /> : null}
+          <Button label="Create meeting" variant="primary" size="lg" fullWidth loading={busy} disabled={busy || !title.trim()} onPress={() => void create()} />
+        </Card>
+      }
+    />
+  );
 }
+
+const styles = StyleSheet.create({
+  people: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  person: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingLeft: 6, paddingRight: 12, borderWidth: 1, borderRadius: Radius.pill },
+  meeting: { gap: 8, paddingVertical: 14 },
+  meetingHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  meetingText: { flex: 1, minWidth: 0, gap: 2 },
+  when: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  whenCell: { flexGrow: 1, flexBasis: 150 },
+});

@@ -161,7 +161,7 @@ export default function OnboardingScreen() {
     <ThemedView style={styles.page}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.topline}>
-          <ThemedText style={styles.brand}>Synq</ThemedText>
+          <ThemedText style={styles.brand} themeColor="accentText">Synq</ThemedText>
           <ThemedText type="caption" themeColor="textSecondary">Question {step + 1} of {QUESTIONS.length}</ThemedText>
         </View>
         <View style={[styles.progressTrack, { backgroundColor: theme.border }]}>
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { flexGrow: 1, width: '100%', maxWidth: 780, alignSelf: 'center', padding: 28, paddingTop: 34, paddingBottom: 48 },
   topline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-  brand: { fontSize: 20, fontWeight: '800', color: AccentColors.primaryLight },
+  brand: { fontSize: 20, fontWeight: '800' },
   progressTrack: { height: 5, borderRadius: 5, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: AccentColors.primary, borderRadius: 5 },
   intro: { gap: 10, marginTop: 38, marginBottom: 26 },

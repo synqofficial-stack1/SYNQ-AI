@@ -252,7 +252,7 @@ export default function UpgradeScreen() {
         >
           <ThemedText type="small">{notice}</ThemedText>
           <Pressable accessibilityRole="button" onPress={() => setNotice(null)}>
-            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+            <ThemedText type="caption" themeColor="accentText">
               Dismiss
             </ThemedText>
           </Pressable>

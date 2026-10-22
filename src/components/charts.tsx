@@ -2,20 +2,21 @@ import { useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 
-import { AccentColors } from '@/constants/theme';
+import { DataColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 // The two charts on the dashboard. Both draw the user's own rows — there is no
 // sample series anywhere in this file, and an empty dataset renders as empty
 // rather than as a flat pretend line.
 //
-// One series, one hue: the gold is the data, everything else (grid, axes,
-// labels) is deliberately quiet enough to read through.
+// Grid, axes and labels are deliberately quiet enough to read through; the
+// data carries the colour. Series colours come from DataColors so Sales is
+// always gold and Marketing always violet, wherever they appear.
 
-const GOLD = AccentColors.primaryLight;
+const GOLD = DataColors.sales;
 
-/** Gold shades for the donut, light to dark, so slices stay distinguishable. */
-export const SERIES_COLORS = ['#F0CE5A', '#D4AF37', '#A8862A', '#7A6220', '#524116'];
+/** Distinct hues for donut slices and bar rows; each slice also has a text label. */
+export const SERIES_COLORS = [DataColors.sales, DataColors.marketing, DataColors.company, '#16A34A', DataColors.neutral];
 
 type Day = { key: string; label: string; count: number };
 
@@ -226,7 +227,7 @@ export function ActivityLineChart({
               style={[
                 styles.tooltip,
                 {
-                  backgroundColor: color,
+                  backgroundColor: '#171717',
                   left: Math.min(Math.max(activePoint.x - 38, 0), Math.max(width - 76, 0)),
                   top: Math.max(activePoint.y - 34, 0),
                 },
@@ -336,9 +337,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: GOLD,
+    backgroundColor: '#171717',
   },
-  tooltipText: { color: '#0D0D0D', fontSize: 12, fontWeight: '700' },
+  tooltipText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   hitRow: { position: 'absolute', flexDirection: 'row' },
   hit: { flex: 1, height: '100%' },
   donutCenter: {
@@ -352,4 +353,179 @@ const styles = StyleSheet.create({
   },
   donutTotal: { fontSize: 26, lineHeight: 30, fontWeight: '700' },
   donutCaption: { fontSize: 11, lineHeight: 14 },
+});
+
+export type ChartSeries = { key: string; label: string; color: string; values: number[]; fill?: boolean };
+
+/**
+ * Several daily series on one set of axes — Sales, Marketing and the total on
+ * the dashboard. Hover or tap a day to read every series for it at once.
+ */
+export function MultiLineChart({
+  dates,
+  series,
+  height = 240,
+  unit = 'actions',
+}: {
+  /** One `YYYY-MM-DD` key per point, oldest first. */
+  dates: string[];
+  series: ChartSeries[];
+  height?: number;
+  unit?: string;
+}) {
+  const theme = useTheme();
+  const [width, setWidth] = useState(0);
+  const [active, setActive] = useState<number | null>(null);
+  const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
+
+  const padding = { top: 16, right: 12, bottom: 26, left: 34 };
+  const plotWidth = Math.max(0, width - padding.left - padding.right);
+  const plotHeight = Math.max(0, height - padding.top - padding.bottom);
+  const peak = Math.max(1, ...series.flatMap((line) => line.values));
+  const { max, lines } = niceScale(peak);
+  const xFor = (index: number) => padding.left + (dates.length === 1 ? plotWidth / 2 : (index / (dates.length - 1)) * plotWidth);
+  const yFor = (value: number) => padding.top + plotHeight - (value / max) * plotHeight;
+
+  const labelEvery = dates.length > 20 ? 5 : dates.length > 10 ? 3 : 1;
+  const labelIndices = dates.map((_, index) => index).filter((index) => index % labelEvery === 0);
+  const summary = dates
+    .map((key, index) => `${monthDay(key)}: ${series.map((line) => `${line.label} ${line.values[index] ?? 0}`).join(', ')}`)
+    .join('; ');
+
+  return (
+    <View onLayout={onLayout} style={{ height }} accessibilityRole="image" accessibilityLabel={`Activity per day. ${summary}`}>
+      {width > 0 ? (
+        <>
+          <Svg width={width} height={height}>
+            <Defs>
+              {series.map((line) => (
+                <LinearGradient key={line.key} id={`fill-${line.key}`} x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={line.color} stopOpacity={0.22} />
+                  <Stop offset="1" stopColor={line.color} stopOpacity={0} />
+                </LinearGradient>
+              ))}
+            </Defs>
+            {lines.map((value) => (
+              <Line
+                key={value}
+                x1={padding.left}
+                y1={yFor(value)}
+                x2={width - padding.right}
+                y2={yFor(value)}
+                stroke={theme.border}
+                strokeWidth={1}
+                strokeDasharray="3 6"
+              />
+            ))}
+            {series.map((line) => {
+              const points = line.values.map((value, index) => ({ x: xFor(index), y: yFor(value) }));
+              const path = smoothPath(points);
+              const area =
+                points.length > 1
+                  ? `${path} L ${points[points.length - 1].x} ${padding.top + plotHeight} L ${points[0].x} ${padding.top + plotHeight} Z`
+                  : '';
+              return (
+                <G key={line.key}>
+                  {line.fill && area ? <Path d={area} fill={`url(#fill-${line.key})`} /> : null}
+                  <Path d={path} stroke={line.color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  {points.map((point, index) => (
+                    <Circle
+                      key={index}
+                      cx={point.x}
+                      cy={point.y}
+                      r={index === active ? 4.5 : 2.5}
+                      fill={index === active ? line.color : theme.surface}
+                      stroke={line.color}
+                      strokeWidth={1.75}
+                    />
+                  ))}
+                </G>
+              );
+            })}
+            {active !== null ? (
+              <Line
+                x1={xFor(active)}
+                y1={padding.top}
+                x2={xFor(active)}
+                y2={padding.top + plotHeight}
+                stroke={theme.borderStrong}
+                strokeWidth={1}
+                strokeDasharray="4 4"
+              />
+            ) : null}
+          </Svg>
+
+          {lines.map((value) => (
+            <Text
+              key={`y-${value}`}
+              style={[styles.axisLabel, { color: theme.textSecondary, top: yFor(value) - 8, left: 0, width: padding.left - 8, textAlign: 'right' }]}
+            >
+              {Math.round(value)}
+            </Text>
+          ))}
+          {labelIndices.map((index) => (
+            <Text
+              key={`x-${dates[index]}`}
+              numberOfLines={1}
+              style={[styles.axisLabel, { color: theme.textSecondary, top: height - 18, left: xFor(index) - 26, width: 52, textAlign: 'center' }]}
+            >
+              {monthDay(dates[index])}
+            </Text>
+          ))}
+
+          {active !== null ? (
+            <View
+              pointerEvents="none"
+              style={[
+                multiStyles.multiTooltip,
+                {
+                  left: Math.min(Math.max(xFor(active) - 70, 0), Math.max(width - 140, 0)),
+                  top: 4,
+                },
+              ]}
+            >
+              <Text style={multiStyles.multiTooltipTitle}>{monthDay(dates[active])}</Text>
+              {series.map((line) => (
+                <View key={line.key} style={multiStyles.multiTooltipRow}>
+                  <View style={[multiStyles.multiTooltipDot, { backgroundColor: line.color }]} />
+                  <Text style={multiStyles.multiTooltipText}>
+                    {line.label}: {line.values[active] ?? 0}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={[styles.hitRow, { left: padding.left - plotWidth / Math.max(dates.length - 1, 1) / 2, width: plotWidth + plotWidth / Math.max(dates.length - 1, 1), top: padding.top, height: plotHeight }]}>
+            {dates.map((key, index) => (
+              <Pressable
+                key={`hit-${key}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${monthDay(key)}: ${series.map((line) => `${line.label} ${line.values[index] ?? 0} ${unit}`).join(', ')}`}
+                style={styles.hit}
+                onHoverIn={() => setActive(index)}
+                onHoverOut={() => setActive(null)}
+                onPress={() => setActive((current) => (current === index ? null : index))}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+const multiStyles = StyleSheet.create({
+  multiTooltip: {
+    position: 'absolute',
+    width: 140,
+    padding: 8,
+    gap: 3,
+    borderRadius: 8,
+    backgroundColor: '#171717',
+  },
+  multiTooltipTitle: { color: '#FFFFFF', fontSize: 12, fontWeight: '700', marginBottom: 2 },
+  multiTooltipRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  multiTooltipDot: { width: 7, height: 7, borderRadius: 4 },
+  multiTooltipText: { color: '#E8E4DC', fontSize: 12 },
 });

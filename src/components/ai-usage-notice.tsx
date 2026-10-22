@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import { getAIUsage, type AIUsage } from '@/lib/ai-usage';
 
 export function AIUsageNotice({ sending = false, showUpgrade = true }: { sending?: boolean; showUpgrade?: boolean }) {
@@ -26,7 +26,7 @@ export function AIUsageNotice({ sending = false, showUpgrade = true }: { sending
         {usage.resets_at ? `Resets ${new Date(usage.resets_at).toLocaleString()}` : 'Resets 24 hours after your first request.'}
       </ThemedText>}
       {showUpgrade && <Pressable accessibilityRole="link" onPress={() => router.push('/upgrade')}>
-        <ThemedText type="caption" style={{ color: AccentColors.primary }}>Upgrade for more credits and added benefits</ThemedText>
+        <ThemedText type="caption" themeColor="accentText">Upgrade for more credits and added benefits</ThemedText>
       </Pressable>}
     </View>
   );

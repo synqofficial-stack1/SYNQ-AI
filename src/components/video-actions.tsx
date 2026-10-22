@@ -128,7 +128,7 @@ function VideoCard({
             {video.error ?? 'That did not work.'}
           </ThemedText>
           <Pressable accessibilityRole="button" onPress={() => onRegenerate(video)}>
-            <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+            <ThemedText type="caption" themeColor="accentText">
               Edit prompt and try again
             </ThemedText>
           </Pressable>
@@ -141,7 +141,7 @@ function VideoCard({
           </ThemedText>
           <View style={styles.row}>
             <Pressable accessibilityRole="button" onPress={() => onRegenerate(video)}>
-              <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+              <ThemedText type="caption" themeColor="accentText">
                 Edit prompt / make another take
               </ThemedText>
             </Pressable>

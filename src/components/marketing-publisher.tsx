@@ -1,13 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { File as ExpoFile } from 'expo-file-system';
 
-import { PrimaryButton } from '@/components/primary-button';
+import { PlatformMark } from '@/components/brand-icons';
+import { FilmIcon, PlusIcon, RefreshIcon, SendIcon, SparkIcon, TrashIcon, UploadIcon, VideoIcon } from '@/components/icons';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing } from '@/constants/theme';
+import {
+  Button,
+  ButtonRow,
+  Card,
+  ChoiceGroup,
+  EmptyState,
+  Field,
+  InlineAlert,
+  ListRow,
+  ProgressBar,
+  SectionHeader,
+  StatusBadge,
+  Switch,
+  transition,
+  useBreakpoint,
+  type Tone,
+} from '@/components/ui';
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { checkPost, connectPlatform, loadConnections, SOCIAL_LABELS, SOCIAL_PLATFORMS, startPost, type Connection, type SocialPlatform, type SocialPost } from '@/lib/social';
 import { createMedia, draftPreviewUrl, listDraftPosts, listDrafts, listUploadedMedia, saveDraft, uploadVideoFile, VIDEO_MIME, type MarketingDraftWithMedia, type MarketingMedia } from '@/lib/marketing-publishing';
@@ -15,9 +34,28 @@ import { supabase } from '@/lib/supabase';
 import { composeMarketingCaption, MARKETING_CAPTION_LIMITS, validateMarketingDuration, validateMarketingVideo } from '@/lib/marketing-validation';
 import { sendChatMessage } from '@/lib/chat';
 
+// Create Reel: upload a finished MP4, add a caption, choose where it goes, and
+// publish. Every step saves a private draft; a destination toggle only selects
+// where the post will go. Nothing is published until the person presses
+// Publish in the review panel, which names every destination first.
+
 type DraftWithMedia = MarketingDraftWithMedia;
-const GLYPH: Record<SocialPlatform, string> = { youtube: '▶', instagram: 'IG', x: '𝕏', linkedin: 'in' };
 const fileSize = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+const POST_TONE: Record<string, Tone> = {
+  pending: 'neutral',
+  processing: 'info',
+  publishing: 'info',
+  posted: 'success',
+  failed: 'danger',
+};
+const POST_LABEL: Record<string, string> = {
+  pending: 'Queued',
+  processing: 'Processing',
+  publishing: 'Publishing',
+  posted: 'Published',
+  failed: 'Failed',
+};
 
 function readBrowserVideoDuration(source: File | string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -44,7 +82,7 @@ function readBrowserVideoDuration(source: File | string): Promise<number> {
   });
 }
 
-export function MarketingPublisher() {
+export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string } = {}) {
   const theme = useTheme();
   const [drafts, setDrafts] = useState<DraftWithMedia[]>([]);
   const [uploadedMedia, setUploadedMedia] = useState<MarketingMedia[]>([]);
@@ -302,131 +340,443 @@ export function MarketingPublisher() {
     }
   }
 
-  return (
-    <View style={[styles.panel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <View style={styles.header}>
-        <View style={styles.grow}>
-          <ThemedText type="sectionTitle">Upload and publish a reel</ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">Bring a finished MP4. Synq saves a private draft and only publishes after your confirmation.</ThemedText>
-        </View>
-        <Pressable accessibilityRole="button" onPress={reset}><ThemedText type="caption" style={{ color: AccentColors.primary }}>New post</ThemedText></Pressable>
-      </View>
+  // A draft opened from the Marketing overview or library arrives as an id in
+  // the URL; open it once the saved drafts have loaded. editDraft is a new
+  // function every render, so the effect reads the latest one through a ref.
+  const openedDraft = useRef<string | null>(null);
+  const editDraftRef = useRef(editDraft);
+  useEffect(() => {
+    editDraftRef.current = editDraft;
+  });
+  useEffect(() => {
+    if (!initialDraftId || openedDraft.current === initialDraftId) return;
+    const item = drafts.find((saved) => saved.id === initialDraftId);
+    if (!item) return;
+    openedDraft.current = initialDraftId;
+    const timer = setTimeout(() => editDraftRef.current(item), 0);
+    return () => clearTimeout(timer);
+  }, [drafts, initialDraftId]);
 
+  const { width } = useBreakpoint();
+  const columns = width >= 1320 ? 3 : width >= 900 ? 2 : 1;
+  const currentDuration = duration ?? media?.duration_seconds ?? null;
+  const unsavedUploads = uploadedMedia.filter((item) => !drafts.some((saved) => saved.media_id === item.id));
+
+  const content = (
+    <Card>
+      <SectionHeader title="1. Your content" subtitle="Bring a finished MP4. It is stored privately until you publish." />
       {!media ? (
-        <Pressable accessibilityRole="button" onPress={() => void chooseVideo()} disabled={busy} style={[styles.drop, { borderColor: theme.borderStrong }]}>
-          {busy ? <ActivityIndicator color={AccentColors.primary} /> : <ThemedText type="smallBold" style={{ color: AccentColors.primary }}>＋ Choose a video (MP4, up to 100 MB)</ThemedText>}
-          <ThemedText type="caption" themeColor="textSecondary">{progress !== null ? `Uploading ${progress}%` : 'Pick from this device. The file is stored privately in your account.'}</ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">Large video uploads can take 5–10 minutes, depending on file size and internet speed. This is an estimate, not a guarantee. Keep this page open until the upload finishes; an interrupted upload must be restarted.</ThemedText>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose a video to upload"
+          onPress={() => void chooseVideo()}
+          disabled={busy}
+          style={({ hovered }) => [
+            styles.drop,
+            transition,
+            { borderColor: hovered ? theme.accentHover : theme.borderStrong, backgroundColor: hovered ? theme.accentSoft : theme.surfaceRaised },
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator color={theme.accentText} />
+          ) : (
+            <View style={[styles.dropIcon, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <UploadIcon size={20} color={theme.text} />
+            </View>
+          )}
+          <ThemedText type="smallBold">{progress !== null ? `Uploading ${progress}%` : 'Choose a video to upload'}</ThemedText>
+          <ThemedText type="caption" themeColor="textSecondary">
+            MP4 only, up to 100 MB
+          </ThemedText>
+          {!busy ? (
+            <View pointerEvents="none" style={[styles.fakeButton, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+              <ThemedText type="smallBold">Browse files</ThemedText>
+            </View>
+          ) : null}
         </Pressable>
       ) : (
-        <View style={styles.stack}>
-          <View style={styles.header}>
-            <ThemedText type="caption" themeColor="textSecondary">{filename} · {fileSize(size)} · {(duration ?? media.duration_seconds) ? `${duration ?? media.duration_seconds}s` : 'duration loading'}</ThemedText>
-            <View style={styles.platforms}>
-              <Pressable accessibilityRole="button" onPress={() => void chooseVideo()} disabled={busy}><ThemedText type="caption" style={{ color: AccentColors.primary }}>Replace</ThemedText></Pressable>
-              <Pressable accessibilityRole="button" onPress={reset} disabled={busy}><ThemedText type="caption" style={{ color: AccentColors.error }}>Remove</ThemedText></Pressable>
-            </View>
+        <View style={[styles.fileRow, { borderColor: theme.border }]}>
+          <View style={[styles.fileThumb, { backgroundColor: '#171717' }]}>
+            <FilmIcon size={20} color="#FFD45A" />
           </View>
-          {previewUri ? <VideoView player={player} nativeControls contentFit="contain" style={styles.preview} /> : <ActivityIndicator color={AccentColors.primary} />}
-          {progress !== null ? <ThemedText type="caption" themeColor="textSecondary">Uploading {progress}%… Large video uploads can take 5–10 minutes, depending on file size and internet speed. This is an estimate, not a guarantee. Keep this page open; an interrupted upload must be restarted.</ThemedText> : null}
-          <TextField value={title} onChangeText={setTitle} placeholder="Post title (YouTube title)" maxLength={100} />
-          {platforms.includes('youtube') ? <View style={styles.stack}>
-            <View style={styles.header}>
-              <ThemedText type="smallBold">YouTube description</ThemedText>
-              <Pressable accessibilityRole="button" disabled={generatingDescription} onPress={() => void generateYoutubeDescription()}>
-                <ThemedText type="caption" style={{ color: AccentColors.primary }}>{generatingDescription ? 'Generating…' : generatedDescription ? 'Regenerate with AI' : 'Generate with AI'}</ThemedText>
-              </Pressable>
-            </View>
-            <TextField accessibilityLabel="YouTube description" value={description} onChangeText={setDescription} placeholder="Description (optional)" multiline maxLength={5000} style={styles.multiline} />
-            {generatedDescription ? <View style={[styles.review, { borderColor: theme.border }]}>
-              <ThemedText type="caption">AI suggestion · review before using</ThemedText>
-              <ThemedText type="caption" themeColor="textSecondary">{generatedDescription}</ThemedText>
-              <View style={styles.platforms}>
-                <Pressable accessibilityRole="button" onPress={() => { setDescription(generatedDescription); setGeneratedDescription(''); }}><ThemedText type="caption" style={{ color: AccentColors.primary }}>Use suggestion</ThemedText></Pressable>
-                <Pressable accessibilityRole="button" onPress={() => setGeneratedDescription('')}><ThemedText type="caption" themeColor="textSecondary">Discard</ThemedText></Pressable>
-              </View>
-            </View> : null}
-          </View> : null}
-          {!platforms.includes('youtube') ? <TextField value={description} onChangeText={setDescription} placeholder="Description (optional)" multiline maxLength={5000} style={styles.multiline} /> : null}
-          <TextField value={caption} onChangeText={(text) => { setCaption(text); setPlatformContent((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, value === caption ? text : value]))); }} placeholder="Shared caption" multiline style={styles.multiline} />
-          <TextField value={hashtags} onChangeText={setHashtags} placeholder="Hashtags (optional)" />
-          {platforms.includes('youtube') ? <View style={styles.stack}>
-            <ThemedText type="caption" themeColor="textSecondary">YouTube visibility</ThemedText>
-            <View style={styles.platforms}>{(['public', 'unlisted', 'private'] as const).map((visibility) => <Pressable key={visibility} accessibilityRole="radio" accessibilityState={{ checked: youtubeVisibility === visibility }} onPress={() => setYoutubeVisibility(visibility)} style={[styles.visibility, { borderColor: youtubeVisibility === visibility ? AccentColors.primary : theme.border }]}><ThemedText type="caption">{visibility}</ThemedText></Pressable>)}</View>
-          </View> : null}
-          <ThemedText type="smallBold">Choose destinations</ThemedText>
-          <View style={styles.platforms}>
-            {SOCIAL_PLATFORMS.map((p) => {
-              const connection = connections.find((c) => c.platform === p);
-              const active = selectedPlatforms.includes(p);
-              const destinationDisabled = p === 'youtube' && Boolean(connection?.connected) && connection?.publishing_enabled === false;
-              const disabledSelection = destinationDisabled && !active;
-              return <Pressable key={p} accessibilityRole="checkbox" accessibilityState={{ checked: active, disabled: disabledSelection }} disabled={disabledSelection} onPress={() => togglePlatform(p)} style={[styles.platform, { borderColor: active ? AccentColors.primary : theme.border, backgroundColor: active ? 'rgba(232,197,71,0.08)' : 'transparent', opacity: disabledSelection ? 0.55 : 1 }]}>
-                <ThemedText type="smallBold">{GLYPH[p]} {SOCIAL_LABELS[p]}</ThemedText>
-                <ThemedText type="caption" themeColor="textSecondary">{connection?.connected ? `Connected${connection.account_name ? ` · ${connection.account_name}` : ''}${destinationDisabled ? ' · publishing disabled in Integrations' : ''}` : connection?.configured === false ? 'Server setup needed' : 'Not connected'}</ThemedText>
-              </Pressable>;
-            })}
+          <View style={styles.fileText}>
+            <ThemedText type="smallBold" numberOfLines={1}>
+              {filename}
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textSecondary">
+              {fileSize(size)} · {currentDuration ? `${currentDuration}s` : 'reading duration…'}
+            </ThemedText>
           </View>
-          {platforms.map((p) => <View key={p} style={styles.stack}>
-            <ThemedText type="caption" themeColor="textSecondary">{SOCIAL_LABELS[p]} caption · {composeMarketingCaption(platformContent[p] ?? caption, hashtags).length}/{MARKETING_CAPTION_LIMITS[p]}</ThemedText>
-            <TextField value={platformContent[p] ?? caption} onChangeText={(value) => setPlatformContent((old) => ({ ...old, [p]: value }))} multiline style={styles.multiline} maxLength={MARKETING_CAPTION_LIMITS[p]} />
-            {!connections.find((c) => c.platform === p)?.connected ? <PrimaryButton title={connecting === p ? `Connecting ${SOCIAL_LABELS[p]}…` : `Connect ${SOCIAL_LABELS[p]}`} onPress={() => void connect(p)} loading={connecting === p} disabled={connections.find((c) => c.platform === p)?.configured === false} /> : null}
-          </View>)}
-          <View style={styles.actions}>
-            <PrimaryButton title={busy ? 'Saving…' : 'Save draft'} onPress={() => void save('draft')} loading={busy} />
-            <PrimaryButton title={busy ? 'Saving…' : 'Review post'} onPress={() => void save('ready_for_review')} loading={busy} disabled={platforms.length === 0} />
-          </View>
-          {draft?.status === 'ready_for_review' ? <View style={[styles.review, { borderColor: AccentColors.primary }]}>
-            <ThemedText type="smallBold">Review before publishing</ThemedText>
-            <ThemedText type="caption" themeColor="textSecondary">{title || filename} · {platforms.map((p) => `${SOCIAL_LABELS[p]} (${connections.find((c) => c.platform === p)?.account_name ?? 'account'}${p === 'youtube' ? ` · ${youtubeVisibility}` : ''})`).join(', ')}. Each destination is submitted only after you press Publish.</ThemedText>
-            <PrimaryButton title={publishing ? 'Publishing…' : remainingPlatforms.length ? `Publish to ${remainingPlatforms.length} remaining destination${remainingPlatforms.length === 1 ? '' : 's'}` : 'Already published'} onPress={() => void publishNow()} loading={publishing} disabled={publishing || remainingPlatforms.length === 0} />
-            {platforms.map((p) => <ThemedText key={`review-${p}`} type="caption" themeColor="textSecondary">{SOCIAL_LABELS[p]} preview: {title ? `${title} · ` : ''}{composeMarketingCaption(platformContent[p] ?? caption, hashtags) || '(No caption)'}</ThemedText>)}
-          </View> : null}
-          {posts.map((p) => <View key={p.id} style={styles.resultRow}>
-            <ThemedText type="caption" style={[styles.grow, { color: p.status === 'failed' ? AccentColors.error : theme.textSecondary }]}>{SOCIAL_LABELS[p.platform]}: {p.status}{p.error ? ` · ${p.error}` : ''}{p.post_url ? ` · ${p.post_url}` : ''}</ThemedText>
-            {p.status === 'failed' ? <Pressable accessibilityRole="button" onPress={() => void retry(p.platform)} disabled={publishing}><ThemedText type="caption" style={{ color: AccentColors.primary }}>Retry</ThemedText></Pressable> : null}
-          </View>)}
+          <ButtonRow>
+            <Button label="Replace" size="sm" icon={RefreshIcon} disabled={busy} onPress={() => void chooseVideo()} />
+            <Button label="Remove" size="sm" variant="dangerOutline" icon={TrashIcon} disabled={busy} onPress={reset} accessibilityLabel="Remove this video from the post" />
+          </ButtonRow>
         </View>
       )}
-      {error ? <ThemedText type="caption" style={{ color: AccentColors.error }}>{error}</ThemedText> : null}
-      {notice ? <ThemedText type="caption" themeColor="textSecondary">{notice}</ThemedText> : null}
-      {drafts.length ? <View style={styles.stack}>
-        <ThemedText type="smallBold">Saved drafts and publishing</ThemedText>
-        {drafts.map((item) => {
-          const published = item.social_posts.filter((post) => post.status === 'posted');
-          const allPublished = item.platforms.length > 0 && item.platforms.every((platform) => published.some((post) => post.platform === platform));
-          const publishedLabel = published.length ? `Published to ${published.map((post) => SOCIAL_LABELS[post.platform]).join(', ')}` : null;
-          return <Pressable key={item.id} accessibilityRole="button" onPress={() => editDraft(item)} style={[styles.savedDraft, { borderColor: theme.border }]}>
-          <ThemedText type="smallBold">{item.title || item.marketing_media?.filename || 'Untitled reel'}</ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">{allPublished ? 'Published' : publishedLabel ?? (item.status === 'ready_for_review' ? 'Ready for review' : 'Draft')} · {item.platforms.map((p) => SOCIAL_LABELS[p]).join(', ') || 'No destinations yet'}</ThemedText>
-          {published.map((post) => post.post_url ? <ThemedText key={post.id} type="caption" style={{ color: AccentColors.primary }}>{post.post_url}</ThemedText> : null)}
-        </Pressable>;
+      {progress !== null ? <ProgressBar value={progress / 100} label="Upload progress" /> : null}
+      <ThemedText type="caption" themeColor="textSecondary">
+        Large uploads can take 5–10 minutes depending on file size and connection — an estimate, not a guarantee. Keep this page open until the upload finishes; an interrupted upload must be restarted.
+      </ThemedText>
+    </Card>
+  );
+
+  const details = (
+    <Card>
+      <SectionHeader title="2. Caption & details" subtitle="The shared caption is copied to each destination, where you can adjust it." />
+      <Field label="Title" helper="Used as the YouTube title." count={{ value: title.length, max: 100 }}>
+        <TextField accessibilityLabel="Post title" value={title} onChangeText={setTitle} placeholder="e.g. Turn your café into a brand" maxLength={100} editable={!!media} />
+      </Field>
+      <Field label={platforms.includes('youtube') ? 'YouTube description' : 'Description'} helper="Optional." count={{ value: description.length, max: 5000 }}>
+        <TextField accessibilityLabel={platforms.includes('youtube') ? 'YouTube description' : 'Description'} value={description} onChangeText={setDescription} placeholder="What is this video about?" multiline maxLength={5000} editable={!!media} />
+      </Field>
+      {platforms.includes('youtube') ? (
+        <View style={styles.aiRow}>
+          <Button
+            label={generatingDescription ? 'Generating…' : generatedDescription ? 'Regenerate with AI' : 'Write description with AI'}
+            size="sm"
+            icon={SparkIcon}
+            loading={generatingDescription}
+            disabled={generatingDescription}
+            onPress={() => void generateYoutubeDescription()}
+          />
+          <ThemedText type="caption" themeColor="textSecondary">
+            Uses 1 AI credit. Built only from the facts you supplied.
+          </ThemedText>
+        </View>
+      ) : null}
+      {generatedDescription ? (
+        <Card tone="accent" padded>
+          <ThemedText type="smallBold">AI suggestion · review before using</ThemedText>
+          <ThemedText type="small" selectable>
+            {generatedDescription}
+          </ThemedText>
+          <ButtonRow>
+            <Button
+              label="Use suggestion"
+              size="sm"
+              variant="primary"
+              onPress={() => {
+                setDescription(generatedDescription);
+                setGeneratedDescription('');
+              }}
+            />
+            <Button label="Discard" size="sm" onPress={() => setGeneratedDescription('')} />
+          </ButtonRow>
+        </Card>
+      ) : null}
+      <Field label="Caption" helper="Shared across destinations.">
+        <TextField
+          accessibilityLabel="Shared caption"
+          value={caption}
+          onChangeText={(text) => {
+            setCaption(text);
+            setPlatformContent((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, value === caption ? text : value])));
+          }}
+          placeholder="From great coffee to happy customers…"
+          multiline
+          editable={!!media}
+        />
+      </Field>
+      <Field label="Hashtags" helper="Optional. Added after the caption on every destination.">
+        <TextField accessibilityLabel="Hashtags" value={hashtags} onChangeText={setHashtags} placeholder="#smallbusiness #cafe" editable={!!media} />
+      </Field>
+      {platforms.includes('youtube') ? (
+        <Field label="YouTube visibility">
+          <ChoiceGroup
+            label="YouTube visibility"
+            value={youtubeVisibility}
+            onChange={setYoutubeVisibility}
+            options={[
+              { value: 'public', label: 'Public' },
+              { value: 'unlisted', label: 'Unlisted' },
+              { value: 'private', label: 'Private' },
+            ]}
+          />
+        </Field>
+      ) : null}
+    </Card>
+  );
+
+  const preview = (
+    <Card>
+      <SectionHeader title="Video preview" subtitle={media ? `${filename}` : 'Shown here once a video is chosen.'} />
+      <View style={[styles.previewFrame, { backgroundColor: '#111210' }]}>
+        {previewUri ? (
+          <VideoView player={player} nativeControls contentFit="contain" style={styles.preview} />
+        ) : media ? (
+          <ActivityIndicator color="#FFD45A" />
+        ) : (
+          <View style={styles.previewEmpty}>
+            <VideoIcon size={28} color="#8C887F" />
+            <ThemedText type="caption" style={styles.previewEmptyText}>
+              No video yet
+            </ThemedText>
+          </View>
+        )}
+      </View>
+      <ThemedText type="caption" themeColor="textSecondary">
+        9:16 vertical videos suit Reels and Shorts. The preview plays your private upload.
+      </ThemedText>
+    </Card>
+  );
+
+  const destinations = (
+    <Card>
+      <SectionHeader title="3. Publish settings" subtitle="Choose where to publish. Selecting a destination never posts by itself." />
+      <View>
+        {SOCIAL_PLATFORMS.map((p, index) => {
+          const connection = connections.find((c) => c.platform === p);
+          const active = selectedPlatforms.includes(p);
+          const destinationDisabled = p === 'youtube' && Boolean(connection?.connected) && connection?.publishing_enabled === false;
+          const disabledSelection = (destinationDisabled && !active) || !media;
+          const status = connection?.connected
+            ? `Connected${connection.account_name ? ` · ${connection.account_name}` : ''}${destinationDisabled ? ' · publishing turned off in Integrations' : ''}`
+            : connection?.configured === false
+              ? 'Server setup needed'
+              : 'Not connected';
+          return (
+            <View key={p} style={[styles.destination, index < SOCIAL_PLATFORMS.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
+              <View style={styles.destinationHead}>
+                <PlatformMark platform={p} size={38} />
+                <View style={styles.destinationText}>
+                  <ThemedText type="smallBold">{SOCIAL_LABELS[p]}</ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {status}
+                  </ThemedText>
+                </View>
+                <Switch value={active} onValueChange={() => togglePlatform(p)} disabled={disabledSelection} label={`Use ${SOCIAL_LABELS[p]} as a destination`} />
+              </View>
+              {active ? (
+                <View style={styles.destinationBody}>
+                  <Field
+                    label={`${SOCIAL_LABELS[p]} caption`}
+                    count={{ value: composeMarketingCaption(platformContent[p] ?? caption, hashtags).length, max: MARKETING_CAPTION_LIMITS[p] }}
+                  >
+                    <TextField
+                      accessibilityLabel={`${SOCIAL_LABELS[p]} caption`}
+                      value={platformContent[p] ?? caption}
+                      onChangeText={(value) => setPlatformContent((old) => ({ ...old, [p]: value }))}
+                      multiline
+                      maxLength={MARKETING_CAPTION_LIMITS[p]}
+                    />
+                  </Field>
+                  {!connection?.connected ? (
+                    <Button
+                      label={connecting === p ? `Connecting ${SOCIAL_LABELS[p]}…` : `Connect ${SOCIAL_LABELS[p]}`}
+                      size="sm"
+                      variant="primary"
+                      loading={connecting === p}
+                      disabled={connection?.configured === false}
+                      onPress={() => void connect(p)}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          );
         })}
-      </View> : null}
-      {uploadedMedia.filter((item) => !drafts.some((saved) => saved.media_id === item.id)).length ? <View style={styles.stack}>
-        <ThemedText type="smallBold">Uploaded videos</ThemedText>
-        <ThemedText type="caption" themeColor="textSecondary">Uploads are saved privately and remain available after refresh. Select one to continue its draft.</ThemedText>
-        {uploadedMedia.filter((item) => !drafts.some((saved) => saved.media_id === item.id)).map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => void resumeUpload(item)} style={[styles.savedDraft, { borderColor: theme.border }]}>
-          <ThemedText type="smallBold">{item.filename}</ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">{fileSize(item.size_bytes)} · Uploaded {new Date(item.created_at).toLocaleString()}</ThemedText>
-        </Pressable>)}
-      </View> : null}
+      </View>
+      <ButtonRow>
+        <Button label={busy ? 'Saving…' : 'Save draft'} disabled={busy || !media} onPress={() => void save('draft')} />
+        <Button label="Review post" variant="primary" disabled={busy || !media || platforms.length === 0} loading={busy} onPress={() => void save('ready_for_review')} />
+      </ButtonRow>
+      {draft?.status === 'ready_for_review' ? (
+        <Card tone="accent">
+          <SectionHeader title="Review before publishing" size="card" />
+          <ThemedText type="small">
+            {title || filename} ·{' '}
+            {platforms
+              .map((p) => `${SOCIAL_LABELS[p]} (${connections.find((c) => c.platform === p)?.account_name ?? 'account'}${p === 'youtube' ? ` · ${youtubeVisibility}` : ''})`)
+              .join(', ')}
+            . Each destination is submitted only after you press Publish.
+          </ThemedText>
+          {platforms.map((p) => (
+            <ThemedText key={`review-${p}`} type="caption" themeColor="textSecondary">
+              {SOCIAL_LABELS[p]}: {title ? `${title} · ` : ''}
+              {composeMarketingCaption(platformContent[p] ?? caption, hashtags) || '(No caption)'}
+            </ThemedText>
+          ))}
+          <Button
+            label={
+              publishing
+                ? 'Publishing…'
+                : remainingPlatforms.length
+                  ? `Publish to ${remainingPlatforms.length} ${remainingPlatforms.length === 1 ? 'destination' : 'destinations'}`
+                  : 'Already published'
+            }
+            variant="primary"
+            size="lg"
+            fullWidth
+            icon={SendIcon}
+            loading={publishing}
+            disabled={publishing || remainingPlatforms.length === 0}
+            onPress={() => void publishNow()}
+          />
+        </Card>
+      ) : null}
+      {posts.length ? (
+        <View style={styles.results}>
+          {posts.map((p) => (
+            <View key={p.id} style={styles.result}>
+              <PlatformMark platform={p.platform} size={28} />
+              <View style={styles.destinationText}>
+                <ThemedText type="small">{SOCIAL_LABELS[p.platform]}</ThemedText>
+                {p.error ? (
+                  <ThemedText type="caption" style={{ color: theme.danger }}>
+                    {p.error}
+                  </ThemedText>
+                ) : null}
+                {p.post_url ? (
+                  <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(p.post_url!)}>
+                    <ThemedText type="caption" style={{ color: theme.accentText }} numberOfLines={1}>
+                      {p.post_url}
+                    </ThemedText>
+                  </Pressable>
+                ) : null}
+              </View>
+              <StatusBadge label={POST_LABEL[p.status] ?? p.status} tone={POST_TONE[p.status] ?? 'neutral'} />
+              {p.status === 'failed' ? <Button label="Retry" size="sm" disabled={publishing} onPress={() => void retry(p.platform)} /> : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </Card>
+  );
+
+  const library = (
+    <Card>
+      <SectionHeader title="Saved drafts & uploads" subtitle="Drafts stay private. Select one to keep working on it." />
+      {!drafts.length && !unsavedUploads.length ? (
+        <EmptyState icon={FilmIcon} title="No drafts yet" description="Upload a video and save it as a draft to see it here." compact />
+      ) : (
+        <View>
+          {drafts.map((item, index) => {
+            const published = item.social_posts.filter((post) => post.status === 'posted');
+            const allPublished = item.platforms.length > 0 && item.platforms.every((platform) => published.some((post) => post.platform === platform));
+            const label = allPublished
+              ? 'Published'
+              : published.length
+                ? `Published to ${published.map((post) => SOCIAL_LABELS[post.platform]).join(', ')}`
+                : item.status === 'ready_for_review'
+                  ? 'Ready for review'
+                  : 'Draft';
+            return (
+              <ListRow
+                key={item.id}
+                title={item.title || item.marketing_media?.filename || 'Untitled reel'}
+                subtitle={`${item.platforms.map((p) => SOCIAL_LABELS[p]).join(', ') || 'No destinations yet'} · edited ${new Date(item.updated_at).toLocaleDateString()}`}
+                leading={<View style={[styles.libThumb, { backgroundColor: '#171717' }]}><FilmIcon size={16} color="#FFD45A" /></View>}
+                trailing={<StatusBadge label={label} tone={allPublished ? 'success' : item.status === 'ready_for_review' ? 'info' : 'neutral'} />}
+                onPress={() => editDraft(item)}
+                chevron={false}
+                divider={index < drafts.length - 1 || unsavedUploads.length > 0}
+              />
+            );
+          })}
+          {unsavedUploads.map((item, index) => (
+            <ListRow
+              key={item.id}
+              title={item.filename}
+              subtitle={`${fileSize(item.size_bytes)} · uploaded ${new Date(item.created_at).toLocaleString()}`}
+              leading={<View style={[styles.libThumb, { backgroundColor: theme.surfaceRaised }]}><UploadIcon size={16} color={theme.textSecondary} /></View>}
+              trailing={<StatusBadge label="Uploaded" tone="neutral" />}
+              onPress={() => void resumeUpload(item)}
+              chevron={false}
+              divider={index < unsavedUploads.length - 1}
+            />
+          ))}
+        </View>
+      )}
+    </Card>
+  );
+
+  const messagesBlock = (
+    <>
+      {error ? <InlineAlert tone="danger" message={error} /> : null}
+      {notice ? <InlineAlert tone="info" message={notice} /> : null}
+    </>
+  );
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.toolbar}>
+        <ThemedText type="caption" themeColor="textSecondary" style={styles.toolbarText}>
+          {draft ? `Editing “${draft.title || filename || 'Untitled reel'}”` : media ? 'New post — not saved yet' : 'Start a new post'}
+        </ThemedText>
+        <ButtonRow>
+          <Button label="Ask Marketing AI" size="sm" icon={SparkIcon} onPress={() => router.setParams({ ai: '1', department: 'marketing' })} />
+          <Button label="New post" size="sm" icon={PlusIcon} onPress={reset} />
+        </ButtonRow>
+      </View>
+      {messagesBlock}
+      {columns === 3 ? (
+        <View style={styles.columns}>
+          <View style={[styles.column, { flex: 1.15 }]}>
+            {content}
+            {details}
+          </View>
+          <View style={[styles.column, { flex: 0.85 }]}>{preview}</View>
+          <View style={[styles.column, { flex: 1.1 }]}>
+            {destinations}
+            {library}
+          </View>
+        </View>
+      ) : columns === 2 ? (
+        <View style={styles.columns}>
+          <View style={[styles.column, { flex: 1.1 }]}>
+            {content}
+            {details}
+            {library}
+          </View>
+          <View style={[styles.column, { flex: 1 }]}>
+            {preview}
+            {destinations}
+          </View>
+        </View>
+      ) : (
+        <View style={styles.column}>
+          {content}
+          {preview}
+          {details}
+          {destinations}
+          {library}
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  panel: { width: '100%', borderWidth: 1, borderRadius: Radius.card, padding: Spacing.four, gap: Spacing.three },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.three },
-  grow: { flex: 1, gap: Spacing.one }, stack: { gap: Spacing.two },
-  drop: { minHeight: 110, borderWidth: 1, borderStyle: 'dashed', borderRadius: Radius.card, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, padding: Spacing.four },
-  preview: { width: '100%', maxHeight: 440, aspectRatio: 9 / 16, backgroundColor: '#000', borderRadius: Radius.control },
-  multiline: { minHeight: 82, textAlignVertical: 'top' },
-  platforms: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  platform: { flexGrow: 1, minWidth: 138, padding: Spacing.three, borderWidth: 1, borderRadius: Radius.control, gap: Spacing.one },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  review: { borderWidth: 1, borderRadius: Radius.control, padding: Spacing.three, gap: Spacing.two },
-  savedDraft: { padding: Spacing.three, borderWidth: 1, borderRadius: Radius.control, gap: Spacing.one },
-  resultRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  visibility: { borderWidth: 1, borderRadius: Radius.pill, paddingVertical: Spacing.one, paddingHorizontal: Spacing.three },
+  root: { gap: 16 },
+  toolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  toolbarText: { flexShrink: 1 },
+  columns: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
+  column: { gap: 16, minWidth: 0 },
+  drop: {
+    minHeight: 190,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: Radius.card - 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: 20,
+  },
+  dropIcon: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  fakeButton: { marginTop: 8, paddingHorizontal: 16, height: 36, justifyContent: 'center', borderRadius: Radius.control, borderWidth: 1 },
+  fileRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 12, borderWidth: 1, borderRadius: Radius.control + 2 },
+  fileThumb: { width: 56, height: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  fileText: { flex: 1, minWidth: 140, gap: 2 },
+  aiRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: -6 },
+  previewFrame: { width: '100%', aspectRatio: 9 / 16, maxHeight: 560, borderRadius: Radius.control + 4, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  preview: { width: '100%', height: '100%' },
+  previewEmpty: { alignItems: 'center', gap: 8 },
+  previewEmptyText: { color: '#A9A59C' },
+  destination: { gap: 12, paddingVertical: 12 },
+  destinationHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  destinationText: { flex: 1, minWidth: 0, gap: 1 },
+  destinationBody: { gap: 10, paddingLeft: 50 },
+  results: { gap: 10 },
+  result: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  libThumb: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 });

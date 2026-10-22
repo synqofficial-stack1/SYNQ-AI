@@ -1,43 +1,98 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
-import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View, type LayoutChangeEvent, type TextStyle } from 'react-native';
 
-import { ActivityLineChart, DonutChart, SERIES_COLORS } from '@/components/charts';
+import { MultiLineChart } from '@/components/charts';
 import {
   ArrowIcon,
-  BoltIcon,
+  ArrowUpRightIcon,
+  BuildingIcon,
+  CalendarIcon,
   ChartIcon,
-  CheckCircleIcon,
+  CheckIcon,
+  ClipboardIcon,
   ClockIcon,
   LayersIcon,
+  MailIcon,
   MegaphoneIcon,
+  PlayIcon,
+  PlugIcon,
+  PlusIcon,
+  SparkIcon,
+  TargetIcon,
+  UploadIcon,
+  UserIcon,
   UsersIcon,
+  VideoIcon,
+  type IconProps,
 } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, Radius, Spacing, WideBreakpoint } from '@/constants/theme';
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  IconTile,
+  KpiCard,
+  LinkButton,
+  ListRow,
+  Page,
+  Popover,
+  SectionHeader,
+  Select,
+  SkeletonList,
+  StatusBadge,
+  showToast,
+  transition,
+  type Tone,
+} from '@/components/ui';
+import { DataColors, Radius } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
-import { useWorkspace } from '@/hooks/use-workspace';
 import { useTheme } from '@/hooks/use-theme';
+import { useWorkspace } from '@/hooks/use-workspace';
 import { subscribeAnalytics } from '@/lib/analytics-events';
+import { setWorkspaceTaskStatus } from '@/lib/organization';
 import { supabase } from '@/lib/supabase';
 import {
-  loadUsage,
-  loadWorkspaceSummary,
+  compare,
+  loadDashboard,
+  meetingTime,
   relativeTime,
-  type UsageStats,
-  type WorkspaceSummary,
+  type ActivityEntry,
+  type DashboardData,
+  type DashboardRange,
 } from '@/lib/workspace';
 
 // The dashboard. Every number on this screen is counted from the signed-in
-// user's own rows (see lib/workspace.ts) — there is no sample series, no seeded
-// activity and no analytics service behind any of it. Where a feature does not
-// exist yet, the card says so instead of showing a plausible-looking fake.
+// person's own rows (see lib/workspace.ts) — there is no sample series, no
+// seeded activity and no analytics service behind any of it. Where something
+// has not happened yet, the card says so instead of showing a plausible fake.
 
-const CARD_RADIUS = 18;
-const ANALYTICS_TABLES = ['tasks', 'sales_runs', 'prospects', 'calls', 'videos', 'messages', 'leads', 'social_posts'] as const;
-const CONTENT_MAX_WIDTH = 1220;
+const ANALYTICS_TABLES = [
+  'tasks',
+  'sales_runs',
+  'prospects',
+  'calls',
+  'videos',
+  'messages',
+  'leads',
+  'social_posts',
+  'sales_meetings',
+  'organization_tasks',
+  'outreach_campaigns',
+] as const;
+
+const VIDEO_COLOR = '#E0533D';
+
+const RANGES: { value: `${DashboardRange}`; label: string }[] = [
+  { value: '7', label: 'Last 7 days' },
+  { value: '14', label: 'Last 14 days' },
+  { value: '30', label: 'Last 30 days' },
+];
+
+type Go = Parameters<typeof router.push>[0];
+const go = (path: string) => router.push(path as Go);
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -46,200 +101,237 @@ function greeting(): string {
   return 'Good evening';
 }
 
-/** The surface everything on this page sits on: dark, hairline-bordered, with a faint top sheen. */
-function GlassCard({ children, style }: { children: ReactNode; style?: object }) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }, style]}>
-      <LinearGradient
-        pointerEvents="none"
-        colors={SHEEN}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0.6, y: 1 }}
-      />
-      {children}
-    </View>
-  );
+function toneFor(status: string): Tone {
+  if (/completed|published|added|replied/i.test(status)) return 'success';
+  if (/failed/i.test(status)) return 'danger';
+  if (/attention|waiting/i.test(status)) return 'warning';
+  if (/running|progress|scheduled|processing|publishing|ready/i.test(status)) return 'info';
+  return 'neutral';
 }
 
-const SHEEN = ['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.01)', 'transparent'] as const;
-const HERO_WASH = ['rgba(9, 9, 12, 0.92)', 'rgba(9, 9, 12, 0.55)', 'rgba(9, 9, 12, 0.85)'] as const;
+const KIND_ICON: Record<ActivityEntry['kind'], { icon: ComponentType<IconProps>; color: string }> = {
+  task: { icon: SparkIcon, color: DataColors.sales },
+  sales_run: { icon: TargetIcon, color: DataColors.sales },
+  post: { icon: PlayIcon, color: VIDEO_COLOR },
+  meeting: { icon: CalendarIcon, color: DataColors.marketing },
+  lead: { icon: UserIcon, color: DataColors.company },
+  email: { icon: MailIcon, color: DataColors.sales },
+};
 
-function SectionHead({
-  title,
-  subtitle,
-  trailing,
-}: {
-  title: string;
-  subtitle?: string;
-  trailing?: ReactNode;
-}) {
+/** Opens the assistant with a prompt already sent, so the real chat answers it. */
+function askSynq(prompt?: string) {
+  router.setParams({ ai: '1', department: 'general', prompt: prompt || undefined });
+}
+
+function Welcome({ firstName, companyName }: { firstName: string; companyName: string }) {
+  const theme = useTheme();
+  const createAnchor = useRef<View>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const create = (path: string) => {
+    setCreateOpen(false);
+    go(path);
+  };
   return (
-    <View style={styles.sectionHead}>
-      <View style={styles.sectionHeadText}>
-        <ThemedText type="sectionTitle">{title}</ThemedText>
-        {subtitle ? (
+    <View style={[styles.welcome, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={[theme.accentSoft, theme.surface]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0.6 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.welcomeBody}>
+        <ThemedText type="label" themeColor="textSecondary">
+          {greeting()},
+        </ThemedText>
+        <ThemedText type="title" style={styles.welcomeName} numberOfLines={1}>
+          {firstName} 👋
+        </ThemedText>
+        <ThemedText type="default" themeColor="textSecondary" style={styles.welcomeText}>
+          Your AI workforce is ready. What do you want to work on today?
+        </ThemedText>
+        {companyName ? (
           <ThemedText type="caption" themeColor="textSecondary">
-            {subtitle}
+            {companyName} workspace · Sales, Marketing and Company departments
           </ThemedText>
         ) : null}
       </View>
-      {trailing}
+      <View style={styles.welcomeActions}>
+        <View ref={createAnchor} collapsable={false}>
+          <Button label="Create" variant="primary" icon={PlusIcon} onPress={() => setCreateOpen(true)} accessibilityLabel="Create something new" />
+        </View>
+        <Button label="Import leads" icon={UploadIcon} onPress={() => go('/import-leads')} />
+        <Button label="Write emails" icon={MailIcon} onPress={() => go('/sales?compose=1')} />
+        <Button label="Generate content" icon={SparkIcon} onPress={() => go('/marketing?ai=1&department=marketing')} />
+      </View>
+      <Popover anchorRef={createAnchor} visible={createOpen} onClose={() => setCreateOpen(false)} label="Create" width={260}>
+        {[
+          { label: 'Email duty', hint: 'Write and send outreach from Gmail', icon: MailIcon, path: '/sales?compose=1' },
+          { label: 'Reel', hint: 'Upload a video and publish it', icon: VideoIcon, path: '/marketing?view=create' },
+          { label: 'Meeting', hint: 'Plan a sales meeting', icon: CalendarIcon, path: '/sales?view=meetings' },
+          { label: 'Team task', hint: 'Assign work to a teammate', icon: ClipboardIcon, path: '/company?tab=tasks' },
+        ].map((item) => (
+          <Pressable
+            key={item.label}
+            accessibilityRole="menuitem"
+            accessibilityLabel={`${item.label}: ${item.hint}`}
+            onPress={() => create(item.path)}
+            style={({ hovered }) => [styles.menuItem, hovered && { backgroundColor: theme.surfaceRaised }]}
+          >
+            <item.icon size={17} color={theme.textSecondary} />
+            <View style={styles.menuText}>
+              <ThemedText type="smallBold">{item.label}</ThemedText>
+              <ThemedText type="caption" themeColor="textSecondary">
+                {item.hint}
+              </ThemedText>
+            </View>
+          </Pressable>
+        ))}
+      </Popover>
     </View>
   );
 }
 
-function Chip({ label }: { label: string }) {
+const SUGGESTIONS = [
+  'Write a cold email for my business',
+  'Plan a week of Instagram posts',
+  'Summarize my workspace activity',
+  'Ideas for a 30-second reel',
+];
+
+const noOutline = Platform.select({ web: { outlineStyle: 'none' } as unknown as TextStyle, default: null });
+
+/** A doorway into the real assistant: whatever is typed here is sent there. */
+function AskSynqPanel() {
+  const [text, setText] = useState('');
+  const send = () => {
+    const prompt = text.trim();
+    if (!prompt) return;
+    setText('');
+    askSynq(prompt);
+  };
+  return (
+    <View style={styles.ask}>
+      <View style={styles.askHead}>
+        <SparkIcon size={20} color="#FFD45A" />
+        <View style={styles.askTitle}>
+          <Text style={styles.askHeading}>Ask Synq</Text>
+          <Text style={styles.askSub}>Your AI business partner</Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open the full assistant"
+          onPress={() => askSynq()}
+          style={({ hovered }) => [styles.askExpand, transition, hovered && { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+        >
+          <ArrowUpRightIcon size={16} color="#A9A59C" />
+        </Pressable>
+      </View>
+      <View style={styles.askInputRow}>
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          onSubmitEditing={send}
+          placeholder="Tell me what you want to do…"
+          placeholderTextColor="#8C887F"
+          accessibilityLabel="Ask Synq"
+          returnKeyType="send"
+          style={[styles.askInput, noOutline]}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Send to Synq"
+          accessibilityState={{ disabled: !text.trim() }}
+          disabled={!text.trim()}
+          onPress={send}
+          style={({ hovered }) => [styles.askSend, transition, { opacity: text.trim() ? 1 : 0.5, backgroundColor: hovered ? '#EAB938' : '#FFD45A' }]}
+        >
+          <ArrowIcon size={16} color="#171717" />
+        </Pressable>
+      </View>
+      <View style={styles.askChips}>
+        {SUGGESTIONS.map((suggestion) => (
+          <Pressable
+            key={suggestion}
+            accessibilityRole="button"
+            accessibilityLabel={`Use suggestion: ${suggestion}`}
+            onPress={() => setText(suggestion)}
+            style={({ hovered }) => [styles.askChip, transition, hovered && { borderColor: 'rgba(255,212,90,0.5)' }]}
+          >
+            <Text style={styles.askChipText}>{suggestion}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.askNote}>Each message uses 1 daily AI credit.</Text>
+    </View>
+  );
+}
+
+function QuickActions() {
   const theme = useTheme();
+  const actions: { label: string; icon: ComponentType<IconProps>; onPress: () => void }[] = [
+    { label: 'Import leads', icon: UploadIcon, onPress: () => go('/import-leads') },
+    { label: 'Write emails', icon: MailIcon, onPress: () => go('/sales?compose=1') },
+    { label: 'Create reel', icon: VideoIcon, onPress: () => go('/marketing?view=create') },
+    { label: 'Generate content', icon: SparkIcon, onPress: () => go('/marketing?ai=1&department=marketing') },
+    { label: 'Book meeting', icon: CalendarIcon, onPress: () => go('/sales?view=meetings') },
+    { label: 'Assign task', icon: ClipboardIcon, onPress: () => go('/company?tab=tasks') },
+    { label: 'Connect accounts', icon: PlugIcon, onPress: () => go('/plugins') },
+    { label: 'View activity', icon: ClockIcon, onPress: () => go('/history') },
+    { label: 'Open Sales', icon: ArrowUpRightIcon, onPress: () => go('/sales') },
+  ];
   return (
-    <View style={[styles.chip, { borderColor: theme.border, backgroundColor: theme.surfaceRaised }]}>
-      <ThemedText type="caption" themeColor="textSecondary">
-        {label}
-      </ThemedText>
-    </View>
-  );
-}
-
-function Tile({ children, tint }: { children: ReactNode; tint: string }) {
-  return <View style={[styles.tile, { backgroundColor: tint }]}>{children}</View>;
-}
-
-function Metric({
-  label,
-  value,
-  note,
-  icon,
-  tint,
-  noteColor,
-  stacked,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  icon: ReactNode;
-  tint: string;
-  noteColor?: string;
-  /** Stacked cards size to their content; side-by-side ones share the row. */
-  stacked?: boolean;
-}) {
-  return (
-    <GlassCard style={[styles.metricCard, stacked ? styles.unflex : null] as object}>
-      <View style={styles.metricRow}>
-        <Tile tint={tint}>{icon}</Tile>
-        <View style={styles.metricText}>
-          <ThemedText type="caption" themeColor="textSecondary" style={styles.metricLabel}>
-            {label}
-          </ThemedText>
-          <ThemedText type="metric">{value}</ThemedText>
-          <ThemedText type="caption" style={noteColor ? { color: noteColor } : undefined} themeColor={noteColor ? undefined : 'textSecondary'}>
-            {note}
-          </ThemedText>
-        </View>
+    <Card>
+      <SectionHeader title="Quick actions" subtitle="Do more, faster." />
+      <View style={styles.quickGrid}>
+        {actions.map((action) => (
+          <Pressable
+            key={action.label}
+            accessibilityRole="button"
+            accessibilityLabel={action.label}
+            onPress={action.onPress}
+            style={({ hovered, pressed }) => [
+              styles.quick,
+              transition,
+              {
+                borderColor: hovered ? theme.borderStrong : theme.border,
+                backgroundColor: hovered || pressed ? theme.surfaceRaised : theme.surface,
+              },
+            ]}
+          >
+            <action.icon size={20} color={theme.text} />
+            <Text numberOfLines={2} style={[styles.quickLabel, { color: theme.text }]}>
+              {action.label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
-    </GlassCard>
-  );
-}
-
-function StatusIcon({ status }: { status: string }) {
-  const color =
-    status === 'completed'
-      ? AccentColors.success
-      : status === 'failed'
-        ? AccentColors.error
-        : AccentColors.warning;
-  const tint =
-    status === 'completed'
-      ? 'rgba(22, 163, 74, 0.14)'
-      : status === 'failed'
-        ? 'rgba(229, 72, 77, 0.14)'
-        : 'rgba(245, 158, 11, 0.14)';
-  return (
-    <View style={[styles.activityTile, { backgroundColor: tint }]}>
-      {status === 'completed' ? (
-        <CheckCircleIcon size={16} color={color} />
-      ) : (
-        <ClockIcon size={16} color={color} />
-      )}
-    </View>
-  );
-}
-
-function Hero({ name, wide }: { name: string; wide: boolean }) {
-  return (
-    <View style={styles.hero}>
-      {/* Drawn rather than photographed: there is no hero image in the project,
-          and a gradient never crops badly on a phone. */}
-      <Svg style={StyleSheet.absoluteFill} viewBox="0 0 100 100" preserveAspectRatio="none">
-        <Defs>
-          <RadialGradient id="heroGlow" cx="78%" cy="35%" rx="62%" ry="120%">
-            <Stop offset="0" stopColor="#FFB663" stopOpacity={0.5} />
-            <Stop offset="0.45" stopColor="#C2410C" stopOpacity={0.24} />
-            <Stop offset="1" stopColor="#09090C" stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Rect x={0} y={0} width={100} height={100} fill="url(#heroGlow)" />
-      </Svg>
-      <LinearGradient
-        pointerEvents="none"
-        colors={HERO_WASH}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={StyleSheet.absoluteFill}
-      />
-
-      <View style={styles.heroBody}>
-        <ThemedText type="pageTitle" style={styles.heroGreeting}>
-          {greeting()},
-        </ThemedText>
-        <ThemedText type="pageTitle" style={styles.heroName} numberOfLines={1}>
-          {name} 👋
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Here&apos;s what&apos;s happening across your workspace.
-        </ThemedText>
-      </View>
-
-      {wide ? (
-        <View style={styles.heroAside} pointerEvents="none">
-          <ThemedText type="caption" style={styles.heroAsideLine}>
-            AUTOMATE TODAY
-          </ThemedText>
-          <ThemedText type="caption" style={styles.heroAsideLine}>
-            A MORE EFFICIENT
-          </ThemedText>
-          <ThemedText type="caption" style={styles.heroAsideLine}>
-            TOMORROW
-          </ThemedText>
-          <View style={styles.heroRule} />
-        </View>
-      ) : null}
-    </View>
+    </Card>
   );
 }
 
 export default function DashboardScreen() {
   const theme = useTheme();
   const { session } = useSession();
-  const {identity}=useWorkspace();
-  const { width } = useWindowDimensions();
-  const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
-  const [usage, setUsage] = useState<UsageStats | null>(null);
+  const { identity } = useWorkspace();
+  const [range, setRange] = useState<DashboardRange>(14);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [failed, setFailed] = useState(false);
+  const [width, setWidth] = useState(0);
+  const [completing, setCompleting] = useState<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // "Try again" bumps the attempt, and the effect below owns every setState —
-  // so nothing is written while React is still rendering, and a reply that
-  // arrives after the screen is gone is dropped instead of setting state.
+  // "Try again" and every refresh bump the attempt; the effect below owns every
+  // setState, so a reply that lands after the screen is gone is dropped.
   const [attempt, setAttempt] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
       setAttempt((value) => value + 1);
-    }, [])
+    }, []),
   );
 
-  const scheduleAnalyticsRefresh = useCallback(() => {
+  const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
@@ -248,483 +340,450 @@ export default function DashboardScreen() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeAnalytics(scheduleAnalyticsRefresh);
+    const unsubscribe = subscribeAnalytics(scheduleRefresh);
     let channel = supabase.channel('dashboard-analytics');
     ANALYTICS_TABLES.forEach((table) => {
-      channel = channel.on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table },
-        scheduleAnalyticsRefresh
-      );
+      channel = channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh);
     });
     channel.subscribe();
-
     return () => {
       unsubscribe();
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       void supabase.removeChannel(channel);
     };
-  }, [scheduleAnalyticsRefresh]);
+  }, [scheduleRefresh]);
 
   useEffect(() => {
     let live = true;
-
-    loadWorkspaceSummary()
+    loadDashboard(range)
       .then((result) => {
         if (!live) return;
-        setSummary(result);
+        setData(result);
         setFailed(false);
       })
       .catch(() => {
         if (live) setFailed(true);
       });
-
-    // A usage chart that won't load shouldn't take the whole dashboard with it.
-    loadUsage()
-      .then((result) => {
-        if (live) setUsage(result);
-      })
-      .catch(() => {});
-
     return () => {
       live = false;
     };
-  }, [attempt]);
+  }, [attempt, range]);
 
-  const name = identity?.full_name || String(session?.user?.user_metadata?.full_name||session?.user?.user_metadata?.name||'there');
-  const wide = width >= WideBreakpoint;
-  const roomy = width >= 1180;
+  async function completeTask(id: string) {
+    setCompleting(id);
+    try {
+      await setWorkspaceTaskStatus(id, 'completed');
+      showToast('Task marked as done.');
+      setAttempt((value) => value + 1);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : 'Could not update this task.', 'danger');
+    } finally {
+      setCompleting(null);
+    }
+  }
 
-  const breakdownTotal = usage?.breakdown.reduce((sum, row) => sum + row.count, 0) ?? 0;
+  const fullName = identity?.full_name || String(session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || '');
+  const firstName = fullName.trim().split(/\s+/)[0] || 'there';
+  const unavailable = (section: string) => data?.unavailable.includes(section) ?? false;
+  const rangeNote = `Last ${range} days`;
 
-  // A card in a stacked column must size to its content; only a card sharing a
-  // row should stretch to match its neighbour.
-  const panel = (base: object) => [base, !roomy ? styles.unflex : null] as object;
+  const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
+  const columns = width >= 1120 ? 3 : width >= 760 ? 2 : 1;
 
-  return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <Hero name={name} wide={roomy} />
+  const kpis = (
+    <View style={styles.kpis}>
+      {[
+        <KpiCard
+          key="actions"
+          label="Total actions"
+          icon={LayersIcon}
+          color={DataColors.sales}
+          value={data ? (unavailable('activity') ? '—' : String(data.actions.current)) : null}
+          trend={data && !unavailable('activity') ? compare(data.actions.current, data.actions.previous) : undefined}
+          note={data ? (unavailable('activity') ? 'Could not load activity' : `${rangeNote}${compare(data.actions.current, data.actions.previous) ? ', vs the period before' : ''}`) : undefined}
+          spark={data?.days.map((day) => day.total)}
+        />,
+        <KpiCard
+          key="leads"
+          label="Leads"
+          icon={UsersIcon}
+          color={DataColors.company}
+          value={data ? (unavailable('leads') ? '—' : String(data.leads.total)) : null}
+          note={data ? (unavailable('leads') ? 'Could not load leads' : data.leads.inRange ? `${data.leads.inRange} added, ${rangeNote.toLowerCase()}` : 'In your CRM') : undefined}
+          spark={data?.leads.daily}
+          onPress={() => go('/import-leads')}
+        />,
+        <KpiCard
+          key="meetings"
+          label="Meetings booked"
+          icon={CalendarIcon}
+          color={DataColors.marketing}
+          value={data ? (unavailable('meetings') ? '—' : String(data.meetings.total)) : null}
+          note={data ? (unavailable('meetings') ? 'Could not load meetings' : `${data.meetings.upcoming} upcoming`) : undefined}
+          spark={data?.meetings.daily}
+          onPress={() => go('/sales?view=meetings')}
+        />,
+        <KpiCard
+          key="videos"
+          label="Videos published"
+          icon={PlayIcon}
+          color={VIDEO_COLOR}
+          value={data ? (unavailable('published') ? '—' : String(data.published.total)) : null}
+          note={data ? (unavailable('published') ? 'Could not load posts' : data.published.inRange ? `${data.published.inRange} ${rangeNote.toLowerCase()}` : 'To your connected accounts') : undefined}
+          spark={data?.published.daily}
+          onPress={() => go('/marketing')}
+        />,
+      ].map((card, index) => (
+        <View key={index} style={[styles.kpiCell, { flexBasis: width >= 1120 ? '22%' : width >= 560 ? '40%' : '100%' }]}>
+          {card}
+        </View>
+      ))}
+    </View>
+  );
 
-      {failed ? (
-        <GlassCard>
-          <ThemedText type="small">Something went wrong loading your workspace.</ThemedText>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setAttempt((value) => value + 1)}
-            style={styles.retry}
-          >
-            <ThemedText type="small" style={{ color: AccentColors.primary }}>
-              Try again
-            </ThemedText>
-          </Pressable>
-        </GlassCard>
+  const chart = (
+    <Card>
+      <SectionHeader
+        title="Activity overview"
+        subtitle="Actions across your workspace"
+        action={
+          <Select
+            label="Date range"
+            size="sm"
+            value={`${range}` as `${DashboardRange}`}
+            options={RANGES}
+            onChange={(value) => setRange(Number(value) as DashboardRange)}
+            width={150}
+          />
+        }
+      />
+      {!data ? (
+        <SkeletonList rows={3} />
+      ) : unavailable('activity') ? (
+        <ErrorState message="Activity could not be loaded." onRetry={() => setAttempt((value) => value + 1)} />
+      ) : data.actions.current === 0 ? (
+        <EmptyState
+          icon={ChartIcon}
+          title="Nothing recorded yet"
+          description="Chats, email duties, videos, meetings and team tasks show up here as you work."
+          action={{ label: 'Ask Synq', icon: SparkIcon, onPress: () => askSynq() }}
+        />
       ) : (
         <>
-          <View style={[styles.row, !wide && styles.rowStacked]}>
-            <Metric
-              label="RUNS"
-              value={summary ? String(summary.totalRuns) : '—'}
-              note={summary ? `${summary.failedRuns} failed` : 'Loading'}
-              noteColor={summary && summary.failedRuns > 0 ? AccentColors.error : undefined}
-              icon={<LayersIcon size={20} color={AccentColors.primaryLight} />}
-              tint="rgba(232, 197, 71, 0.12)"
-              stacked={!wide}
-            />
-            <Metric
-              label="COMPLETED"
-              value={summary ? String(summary.completedRuns) : '—'}
-              note="Handled by your agents"
-              icon={<CheckCircleIcon size={20} color={AccentColors.success} />}
-              tint="rgba(22, 163, 74, 0.13)"
-              stacked={!wide}
-            />
-            <Metric
-              label="LEADS"
-              value={summary ? String(summary.leadCount) : '—'}
-              note="In your workspace"
-              icon={<UsersIcon size={20} color="#8AA4FF" />}
-              tint="rgba(138, 164, 255, 0.13)"
-              stacked={!wide}
-            />
-          </View>
-
-          <View style={[styles.row, !roomy && styles.rowStacked]}>
-            <GlassCard style={panel(styles.chartCard)}>
-              <SectionHead
-                title="Activity Overview"
-                subtitle="Task and sales runs, videos, chats, and logged calls"
-                trailing={<Chip label="Last 14 days" />}
-              />
-
-              {usage === null ? (
+          <View style={styles.legend}>
+            {[
+              { label: 'Sales', color: DataColors.sales },
+              { label: 'Marketing', color: DataColors.marketing },
+              { label: 'Company', color: DataColors.company },
+              { label: 'Total', color: theme.text },
+            ].map((item) => (
+              <View key={item.label} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: item.color }]} />
                 <ThemedText type="caption" themeColor="textSecondary">
-                  Loading…
-                </ThemedText>
-              ) : usage.total === 0 ? (
-                <View style={styles.empty}>
-                  <ThemedText type="small">Nothing recorded yet</ThemedText>
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    Runs, chats and logged calls show up here as you work.
-                  </ThemedText>
-                </View>
-              ) : (
-                <ActivityLineChart days={usage.days} height={wide ? 220 : 190} />
-              )}
-            </GlassCard>
-
-            <GlassCard style={panel(styles.donutCard)}>
-              <SectionHead
-                title="Department Usage"
-                subtitle="Where the activity came from"
-                trailing={roomy ? <Chip label="Last 14 days" /> : undefined}
-              />
-
-              {usage === null ? (
-                <ThemedText type="caption" themeColor="textSecondary">
-                  Loading…
-                </ThemedText>
-              ) : usage.breakdown.length === 0 ? (
-                <View style={styles.empty}>
-                  <ThemedText type="small">No department activity yet</ThemedText>
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    This splits your activity by the agent that did the work.
-                  </ThemedText>
-                </View>
-              ) : (
-                <View style={[styles.donutRow, !wide && styles.donutRowStacked]}>
-                  <DonutChart
-                    segments={usage.breakdown}
-                    size={148}
-                    centerLabel={breakdownTotal === 1 ? 'Total action' : 'Total actions'}
-                  />
-                  <View style={styles.legend}>
-                    {usage.breakdown.map((row, index) => (
-                      <View key={row.label} style={styles.legendRow}>
-                        <View
-                          style={[
-                            styles.legendDot,
-                            { backgroundColor: SERIES_COLORS[index % SERIES_COLORS.length] },
-                          ]}
-                        />
-                        <ThemedText type="small" style={styles.legendLabel} numberOfLines={1}>
-                          {row.label}
-                        </ThemedText>
-                        <ThemedText type="smallBold">{row.count}</ThemedText>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-            </GlassCard>
-          </View>
-
-          <View style={[styles.row, !roomy && styles.rowStacked]}>
-            <GlassCard style={panel(styles.chartCard)}>
-              <SectionHead
-                title="Recent Activity"
-                subtitle="Latest actions in your workspace"
-                trailing={
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => router.push('/history')}
-                    style={({ hovered }) => [
-                      styles.ghostButton,
-                      {
-                        borderColor: theme.border,
-                        backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
-                      },
-                    ]}
-                  >
-                    <ThemedText type="caption" themeColor="textSecondary">
-                      View all
-                    </ThemedText>
-                    <ArrowIcon size={14} color={theme.textSecondary} />
-                  </Pressable>
-                }
-              />
-
-              {summary === null ? (
-                <ThemedText type="caption" themeColor="textSecondary">
-                  Loading…
-                </ThemedText>
-              ) : summary.recent.length === 0 ? (
-                <View style={styles.empty}>
-                  <ThemedText type="small">No runs yet</ThemedText>
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    Ask a department to do something and it shows up here.
-                  </ThemedText>
-                  <Pressable accessibilityRole="button" onPress={() => router.push('/sales')}>
-                    <ThemedText type="caption" style={{ color: AccentColors.primary }}>
-                      Open Sales →
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.activityList}>
-                  {summary.recent.map((entry) => (
-                    <View
-                      key={entry.id}
-                      style={[styles.activityRow, { borderColor: theme.border }]}
-                    >
-                      <StatusIcon status={entry.status} />
-                      <View style={styles.activityText}>
-                        <ThemedText type="small" numberOfLines={1}>
-                          {entry.label}
-                        </ThemedText>
-                        <ThemedText type="caption" themeColor="textSecondary">
-                          {entry.status === 'completed'
-                            ? 'Completed'
-                            : entry.status === 'failed'
-                              ? 'Failed'
-                              : entry.status === 'blocked'
-                                ? 'Needs attention'
-                                : entry.status === 'awaiting_approval'
-                                  ? 'Waiting for your approval'
-                                  : entry.status === 'calling'
-                                    ? 'Calling'
-                                  : entry.status === 'ready'
-                                    ? 'Ready for review'
-                                    : ['running', 'planning', 'discovering', 'screening'].includes(entry.status)
-                                      ? 'Running'
-                                      : 'Queued'}
-                        </ThemedText>
-                      </View>
-                      <ThemedText type="caption" themeColor="textSecondary">
-                        {relativeTime(entry.createdAt)}
-                      </ThemedText>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </GlassCard>
-
-            <GlassCard style={panel(styles.donutCard)}>
-              <SectionHead
-                title="Active Automations"
-                subtitle="Work that runs on its own"
-                trailing={<Chip label="Soon" />}
-              />
-
-              {/* Synq has no scheduler and no background workers, so there is
-                  nothing running. Showing invented toggles here would be a lie
-                  about what the product does. */}
-              <View style={styles.empty}>
-                <View style={[styles.activityTile, { backgroundColor: 'rgba(232, 197, 71, 0.12)' }]}>
-                  <BoltIcon size={16} color={AccentColors.primaryLight} />
-                </View>
-                <ThemedText type="small">No automations yet</ThemedText>
-                <ThemedText type="caption" themeColor="textSecondary">
-                  Nothing runs automatically here. Chats and videos start when you ask for them.
+                  {item.label}
                 </ThemedText>
               </View>
-            </GlassCard>
+            ))}
           </View>
-
-          <View style={[styles.row, !roomy && styles.rowStacked]}>
-            <GlassCard style={panel(styles.chartCard)}>
-              <SectionHead title="Departments" subtitle="Your AI team" />
-
-              {[
-                {
-                  label: 'Sales',
-                  hint: 'Sends reviewed emails, simplifies replies, and reports what customers say',
-                  path: '/sales',
-                  icon: <ChartIcon size={18} color={AccentColors.primaryLight} />,
-                },
-                {
-                  label: 'Marketing',
-                  hint: 'Brainstorms campaigns and copy, and makes short videos',
-                  path: '/marketing',
-                  icon: <MegaphoneIcon size={18} color={AccentColors.primaryLight} />,
-                },
-              ].map((department) => (
-                <Pressable
-                  key={department.path}
-                  accessibilityRole="button"
-                  onPress={() => router.push(department.path as Parameters<typeof router.push>[0])}
-                  style={({ hovered }) => [
-                    styles.deptRow,
-                    {
-                      borderColor: theme.border,
-                      backgroundColor: hovered ? theme.surfaceRaised : 'transparent',
-                    },
-                  ]}
-                >
-                  <View style={[styles.activityTile, { backgroundColor: 'rgba(232, 197, 71, 0.1)' }]}>
-                    {department.icon}
-                  </View>
-                  <View style={styles.activityText}>
-                    <ThemedText type="small">{department.label}</ThemedText>
-                    <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
-                      {department.hint}
-                    </ThemedText>
-                  </View>
-                  <View style={[styles.badge, { borderColor: 'rgba(22, 163, 74, 0.5)' }]}>
-                    <ThemedText type="caption" style={{ color: AccentColors.success }}>
-                      Active
-                    </ThemedText>
-                  </View>
-                </Pressable>
-              ))}
-            </GlassCard>
-
-            <GlassCard style={panel(styles.donutCard)}>
-              <SectionHead title="Quick actions" />
-              {[
-                { label: 'Start email outreach', path: '/sales?compose=1' },
-                { label: 'Review follow-ups', path: '/follow-ups' },
-                { label: 'Import CRM contacts', path: '/import-leads' },
-                { label: 'View sales activity', path: '/sales' },
-              ].map((action) => (
-                <Pressable
-                  key={action.path}
-                  accessibilityRole="button"
-                  onPress={() => router.push(action.path as Parameters<typeof router.push>[0])}
-                  style={({ hovered }) => [
-                    styles.actionRow,
-                    { backgroundColor: hovered ? theme.surfaceRaised : 'transparent' },
-                  ]}
-                >
-                  <ThemedText type="small">{action.label}</ThemedText>
-                  <ArrowIcon size={14} color={theme.textSecondary} />
-                </Pressable>
-              ))}
-            </GlassCard>
-          </View>
+          <MultiLineChart
+            dates={data.days.map((day) => day.key)}
+            height={columns === 1 ? 200 : 236}
+            series={[
+              { key: 'total', label: 'Total', color: theme.text, values: data.days.map((day) => day.total) },
+              { key: 'sales', label: 'Sales', color: DataColors.sales, values: data.days.map((day) => day.sales), fill: true },
+              { key: 'marketing', label: 'Marketing', color: DataColors.marketing, values: data.days.map((day) => day.marketing) },
+              { key: 'company', label: 'Company', color: DataColors.company, values: data.days.map((day) => day.company) },
+            ]}
+          />
         </>
       )}
-    </ScrollView>
+    </Card>
+  );
+
+  const departments = (
+    <Card>
+      <SectionHeader title="Departments" subtitle={`${rangeNote}, compared with the ${range} days before`} />
+      {!data ? (
+        <SkeletonList rows={3} />
+      ) : (
+        <View>
+          {(
+            [
+              { key: 'sales', label: 'Sales', icon: ChartIcon, color: DataColors.sales, path: '/sales' },
+              { key: 'marketing', label: 'Marketing', icon: MegaphoneIcon, color: DataColors.marketing, path: '/marketing' },
+              { key: 'company', label: 'Company', icon: BuildingIcon, color: DataColors.company, path: '/company' },
+            ] as const
+          ).map((department, index) => {
+            const stats = data.departments[department.key];
+            const trend = compare(stats.current, stats.previous);
+            return (
+              <ListRow
+                key={department.key}
+                title={department.label}
+                subtitle={`${stats.current} ${stats.current === 1 ? 'action' : 'actions'}`}
+                leading={<IconTile icon={department.icon} color={department.color} size={38} />}
+                trailing={
+                  trend ? (
+                    <Text style={[styles.trend, { color: trend.direction === 'up' ? theme.success : trend.direction === 'down' ? theme.danger : theme.textSecondary }]}>
+                      {trend.direction === 'up' ? '↑ ' : trend.direction === 'down' ? '↓ ' : ''}
+                      {trend.text}
+                    </Text>
+                  ) : stats.current === 0 ? (
+                    <ThemedText type="caption" themeColor="textSecondary">
+                      No activity
+                    </ThemedText>
+                  ) : null
+                }
+                onPress={() => go(department.path)}
+                accessibilityLabel={`${department.label}: ${stats.current} actions. Open ${department.label}`}
+                divider={index < 2}
+              />
+            );
+          })}
+        </View>
+      )}
+    </Card>
+  );
+
+  const recent = (
+    <Card>
+      <SectionHeader title="Recent activity" action={<LinkButton label="View all" icon={ArrowIcon} onPress={() => go('/history')} />} />
+      {!data ? (
+        <SkeletonList rows={4} />
+      ) : unavailable('recent') && !data.recent.length ? (
+        <ErrorState message="Recent activity could not be loaded." onRetry={() => setAttempt((value) => value + 1)} />
+      ) : !data.recent.length ? (
+        <EmptyState
+          icon={ClockIcon}
+          title="No activity yet"
+          description="New leads, email duties, meetings and published posts appear here."
+          action={{ label: 'Open Sales', onPress: () => go('/sales') }}
+        />
+      ) : (
+        <View>
+          {data.recent.map((entry, index) => {
+            const kind = KIND_ICON[entry.kind];
+            return (
+              <ListRow
+                key={entry.id}
+                title={entry.label}
+                subtitle={`${entry.department} · ${relativeTime(entry.createdAt)}`}
+                leading={<IconTile icon={kind.icon} color={kind.color} size={36} />}
+                trailing={<StatusBadge label={entry.status} tone={toneFor(entry.status)} />}
+                onPress={() => go(entry.path)}
+                chevron={false}
+                divider={index < data.recent.length - 1}
+              />
+            );
+          })}
+        </View>
+      )}
+    </Card>
+  );
+
+  const nextUp = (
+    <Card>
+      <SectionHeader
+        title="What's next?"
+        subtitle="Team tasks assigned to you"
+        action={data && data.tasks.length ? <StatusBadge label={`${data.tasks.length} ${data.tasks.length === 1 ? 'task' : 'tasks'}`} dot={false} /> : undefined}
+      />
+      {!data ? (
+        <SkeletonList rows={2} />
+      ) : !data.tasks.length ? (
+        <EmptyState
+          icon={CheckIcon}
+          title="Nothing assigned to you"
+          description="Tasks your team assigns you in Company show up here."
+          action={{ label: 'Assign work', onPress: () => go('/company?tab=tasks') }}
+          compact
+        />
+      ) : (
+        <View style={styles.tasks}>
+          {data.tasks.map((task) => (
+            <View key={task.id} style={styles.task}>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: false, busy: completing === task.id }}
+                accessibilityLabel={`Mark “${task.title}” as done`}
+                disabled={!!completing}
+                onPress={() => void completeTask(task.id)}
+                hitSlop={6}
+                style={({ hovered }) => [styles.taskCircle, transition, { borderColor: hovered ? theme.accentHover : theme.borderStrong }]}
+              >
+                {completing === task.id ? <View style={[styles.taskFill, { backgroundColor: theme.accent }]} /> : null}
+              </Pressable>
+              <Pressable accessibilityRole="link" onPress={() => go('/company?tab=tasks')} style={styles.taskText}>
+                <ThemedText type="small" numberOfLines={2}>
+                  {task.title}
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  {task.status === 'in_progress' ? 'In progress' : 'Open'}
+                  {task.due_at ? ` · due ${meetingTime(task.due_at)}` : ` · assigned ${relativeTime(task.created_at)}`}
+                </ThemedText>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+    </Card>
+  );
+
+  const meetings = (
+    <Card>
+      <SectionHeader title="Upcoming meetings" action={<LinkButton label="View all" icon={ArrowIcon} onPress={() => go('/sales?view=meetings')} />} />
+      {!data ? (
+        <SkeletonList rows={2} />
+      ) : !data.upcomingMeetings.length ? (
+        <EmptyState
+          icon={CalendarIcon}
+          title="No upcoming meetings"
+          description="Meetings you organise or are invited to appear here."
+          action={{ label: 'Plan a meeting', onPress: () => go('/sales?view=meetings') }}
+          compact
+        />
+      ) : (
+        <View>
+          {data.upcomingMeetings.map((meeting, index) => (
+            <ListRow
+              key={meeting.id}
+              title={meeting.title}
+              subtitle={meetingTime(meeting.starts_at)}
+              leading={<IconTile icon={CalendarIcon} color={DataColors.marketing} size={38} />}
+              onPress={() => go('/sales?view=meetings')}
+              divider={index < data.upcomingMeetings.length - 1}
+            />
+          ))}
+        </View>
+      )}
+    </Card>
+  );
+
+  const ask = <AskSynqPanel />;
+  const quick = <QuickActions />;
+
+  const layout: ReactNode[][] =
+    columns === 3
+      ? [[chart, recent], [departments, quick], [ask, nextUp, meetings]]
+      : columns === 2
+        ? [[chart, recent, quick], [ask, departments, nextUp, meetings]]
+        : [[ask, chart, nextUp, meetings, departments, quick, recent]];
+  const flexes = columns === 3 ? [1.5, 1.15, 1] : [1.35, 1];
+
+  return (
+    <Page>
+      <View onLayout={onLayout} style={styles.stack}>
+        <Welcome firstName={firstName} companyName={identity?.membership?.company_name ?? ''} />
+        {failed ? <ErrorState message="Something went wrong loading your workspace." onRetry={() => setAttempt((value) => value + 1)} /> : null}
+        {kpis}
+        <View style={[styles.columns, columns === 1 && styles.columnsStacked]}>
+          {layout.map((column, index) => (
+            <View key={index} style={[styles.column, columns > 1 && { flex: flexes[index] }]}>
+              {column.map((card, cardIndex) => (
+                <View key={cardIndex}>{card}</View>
+              ))}
+            </View>
+          ))}
+        </View>
+      </View>
+    </Page>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    gap: Spacing.three,
-    padding: Spacing.four,
-    width: '100%',
-    maxWidth: CONTENT_MAX_WIDTH,
-    alignSelf: 'center',
-  },
-
-  hero: {
-    minHeight: 150,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.four,
-    borderRadius: CARD_RADIUS,
-    overflow: 'hidden',
-  },
-  heroBody: { gap: 2, flexShrink: 1 },
-  heroGreeting: { fontSize: 26, lineHeight: 32 },
-  heroName: { fontSize: 30, lineHeight: 38, marginBottom: Spacing.one },
-  heroAside: { alignItems: 'flex-end', gap: 2 },
-  heroAsideLine: {
-    color: 'rgba(255, 255, 255, 0.72)',
-    letterSpacing: 2.6,
-    fontSize: 11,
-    lineHeight: 18,
-  },
-  heroRule: { width: 44, height: 1, marginTop: Spacing.two, backgroundColor: AccentColors.primary },
-
-  row: { flexDirection: 'row', gap: Spacing.three, alignItems: 'stretch' },
-  rowStacked: { flexDirection: 'column' },
-
-  card: {
-    flex: 1,
-    gap: Spacing.three,
-    padding: Spacing.four,
-    borderRadius: CARD_RADIUS,
+  stack: { gap: 20 },
+  welcome: {
     borderWidth: 1,
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.28,
-    shadowRadius: 28,
-    elevation: 6,
-  },
-  chartCard: { flex: 1.65 },
-  donutCard: { flex: 1 },
-  // Not `flex: 0`: on web that resolves to a zero basis and collapses the card
-  // to its padding. This says "size to content" without touching the basis.
-  unflex: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
-
-  metricCard: { gap: 0, paddingVertical: Spacing.four },
-  metricRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
-  metricText: { gap: 2, flexShrink: 1 },
-  metricLabel: { letterSpacing: 1.1, fontSize: 11 },
-  tile: {
-    width: 44,
-    height: 44,
     borderRadius: Radius.card,
+    padding: 24,
+    gap: 18,
+    overflow: 'hidden',
+  },
+  welcomeBody: { gap: 4 },
+  welcomeName: { fontSize: 34, lineHeight: 40 },
+  welcomeText: { maxWidth: 560 },
+  welcomeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: 8 },
+  menuText: { flex: 1, gap: 1 },
+  kpis: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  kpiCell: { flexGrow: 1, minWidth: 0 },
+  columns: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
+  columnsStacked: { flexDirection: 'column', alignItems: 'stretch' },
+  column: { gap: 16, minWidth: 0, alignSelf: 'stretch' },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: -4 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  trend: { fontSize: 13, fontWeight: '600' },
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  quick: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    minWidth: 92,
+    minHeight: 78,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  sectionHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.two },
-  sectionHeadText: { gap: 2, flexShrink: 1 },
-  chip: {
-    paddingHorizontal: Spacing.two + 2,
-    paddingVertical: 4,
-    borderRadius: Radius.pill,
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.control + 2,
     borderWidth: 1,
   },
-  ghostButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one + 2,
-    paddingHorizontal: Spacing.two + 2,
-    paddingVertical: 5,
-    borderRadius: Radius.pill,
+  quickLabel: { fontSize: 12.5, fontWeight: '500', textAlign: 'center' },
+  ask: {
+    gap: 14,
+    padding: 20,
+    borderRadius: Radius.card,
+    backgroundColor: '#141412',
     borderWidth: 1,
+    borderColor: '#25241F',
   },
-
-  donutRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
-  donutRowStacked: { flexDirection: 'column', alignItems: 'flex-start' },
-  legend: { flex: 1, gap: Spacing.two, minWidth: 150 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { flex: 1 },
-
-  activityList: { gap: 2 },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.two,
-  },
-  activityTile: {
+  askHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  askTitle: { flex: 1, gap: 2 },
+  askHeading: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  askSub: { color: '#A9A59C', fontSize: 13 },
+  askExpand: {
     width: 32,
     height: 32,
-    borderRadius: Radius.control + 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  activityText: { flex: 1, gap: 1 },
-
-  deptRow: {
+  askInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
-    padding: Spacing.two,
-    borderRadius: Radius.card,
-  },
-  badge: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
+    gap: 8,
+    padding: 5,
+    paddingLeft: 14,
+    borderRadius: Radius.control + 2,
     borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: '#1D1D1A',
   },
-
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.two,
+  askInput: { flex: 1, minWidth: 0, height: 38, color: '#FFFFFF', fontSize: 14 },
+  askSend: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  askChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  askChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: Radius.control,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: '#1D1D1A',
   },
-
-  empty: { gap: Spacing.one + 2, paddingVertical: Spacing.two },
-  retry: { paddingTop: Spacing.two },
+  askChipText: { color: '#E8E4DC', fontSize: 12.5, fontWeight: '500' },
+  askNote: { color: '#8C887F', fontSize: 12 },
+  tasks: { gap: 14 },
+  task: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  taskCircle: {
+    width: 22,
+    height: 22,
+    marginTop: 1,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskFill: { width: 12, height: 12, borderRadius: 6 },
+  taskText: { flex: 1, gap: 2 },
 });

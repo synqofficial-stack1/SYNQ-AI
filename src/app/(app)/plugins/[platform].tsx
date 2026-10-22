@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { PrimaryButton } from '@/components/primary-button';
+import { PlatformMark } from '@/components/brand-icons';
+import { ArrowIcon, ArrowLeftIcon, PlusIcon, RefreshIcon, UnlinkIcon } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
-import { AccentColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { Button, Card, ConfirmDialog, EmptyState, InlineAlert, LinkButton, LoadingState, SectionHeader, StatusBadge, Switch } from '@/components/ui';
+import { MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   connectPlatform,
@@ -28,6 +30,7 @@ export default function PluginScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!platform) {
@@ -108,82 +111,147 @@ export default function PluginScreen() {
     }
   }
 
+  const status = loading
+    ? { label: 'Checking…', tone: 'neutral' as const }
+    : statusError
+      ? { label: 'Status unavailable', tone: 'warning' as const }
+      : !connection?.configured
+        ? { label: 'Setup required', tone: 'neutral' as const }
+        : connection.connected
+          ? { label: 'Connected', tone: 'success' as const }
+          : connection.needs_reconnect
+            ? { label: 'Reconnect needed', tone: 'warning' as const }
+            : connection.verification_error
+              ? { label: 'Could not verify', tone: 'warning' as const }
+              : { label: 'Not connected', tone: 'neutral' as const };
+
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Pressable accessibilityRole="button" onPress={() => router.push('/plugins' as Parameters<typeof router.push>[0])}>
-          <ThemedText type="caption" style={{ color: AccentColors.primaryLight }}>← All plugins</ThemedText>
-        </Pressable>
-        <ThemedText type="pageTitle">{label}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Connect to authorize Synq to publish videos to this account. You still approve each post in Synq before it goes live.
-        </ThemedText>
-      </View>
+    <>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <Button label="All plugins" icon={ArrowLeftIcon} variant="ghost" size="sm" onPress={() => router.push('/plugins' as Parameters<typeof router.push>[0])} />
+          <View style={styles.titleRow}>
+            {platform ? <PlatformMark platform={platform} size={52} /> : null}
+            <View style={styles.titleText}>
+              <ThemedText type="pageTitle" accessibilityRole="header">
+                {label}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Connect to let Synq publish videos to this account. You still approve each post before it goes live.
+              </ThemedText>
+            </View>
+          </View>
+        </View>
 
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <ThemedText type="sectionTitle">Connection status</ThemedText>
-        {loading ? <ActivityIndicator color={AccentColors.primary} /> : !platform ? (
-          <ThemedText type="small" themeColor="textSecondary">This plugin is not supported.</ThemedText>
-        ) : statusError ? (
-          <>
-            <ThemedText type="small" style={{ color: AccentColors.warning }}>Status unavailable</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">{statusError} Synq will not show this account as connected until the provider verifies it.</ThemedText>
-            <PrimaryButton title="Retry verification" onPress={() => void refresh()} />
-          </>
-        ) : !connection?.configured ? (
-          <>
-            <ThemedText type="small" style={{ color: AccentColors.warning }}>Temporarily unavailable</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">This connection is being prepared. Please try again later.</ThemedText>
-          </>
-        ) : connection.connected ? (
-          <>
-            <ThemedText type="small" style={{ color: AccentColors.success }}>Connected and provider-verified</ThemedText>
-            <ThemedText type="small">Account: {connection.account_name || `your ${label} account`}</ThemedText>
-            <ThemedText type="caption" themeColor="textSecondary">Synq verified this account with {label}. Each public post still requires your confirmation.</ThemedText>
-            {platform === 'youtube' ? (
-              <View style={styles.destinationRow}>
-                <View style={styles.destinationCopy}>
-                  <ThemedText type="smallBold">Use YouTube as a publishing destination</ThemedText>
-                  <ThemedText type="caption" themeColor="textSecondary">{connection.publishing_enabled ? 'Enabled' : 'Disabled'}</ThemedText>
-                </View>
-                <Switch accessibilityLabel="Enable YouTube publishing destination" value={connection.publishing_enabled} onValueChange={(enabled) => void togglePublishing(enabled)} disabled={busy} trackColor={{ false: theme.border, true: AccentColors.primary }} />
+        <Card>
+          <SectionHeader title="Connection status" action={platform ? <StatusBadge label={status.label} tone={status.tone} /> : undefined} />
+          {loading ? (
+            <LoadingState label="Checking the connection…" />
+          ) : !platform ? (
+            <EmptyState
+              title="This plugin is not supported"
+              description="Choose a plugin from the directory."
+              action={{ label: 'All plugins', onPress: () => router.push('/plugins' as Parameters<typeof router.push>[0]) }}
+              compact
+            />
+          ) : statusError ? (
+            <>
+              <InlineAlert tone="warning" message={`${statusError} Synq will not show this account as connected until the provider verifies it.`} />
+              <View style={styles.actions}>
+                <Button label="Retry verification" icon={RefreshIcon} onPress={() => void refresh()} />
               </View>
-            ) : null}
-            <PrimaryButton title={busy ? 'Disconnecting…' : `Disconnect ${label}`} onPress={disconnect} disabled={busy} />
-          </>
-        ) : connection.needs_reconnect ? (
-          <>
-            <ThemedText type="small" style={{ color: AccentColors.warning }}>Reconnect required</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">{connection.verification_error ?? 'The provider rejected the saved authorization.'}</ThemedText>
-            <PrimaryButton title={busy ? 'Connecting…' : `Reconnect ${label}`} onPress={connect} disabled={busy} />
-          </>
-        ) : connection.verification_error ? (
-          <>
-            <ThemedText type="small" style={{ color: AccentColors.warning }}>Could not verify</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">{connection.verification_error} Synq will not mark this connection active until verification succeeds.</ThemedText>
-            <PrimaryButton title="Retry verification" onPress={() => void refresh()} disabled={busy} />
-          </>
-        ) : (
-          <>
-            <ThemedText type="small" themeColor="textSecondary">Not connected. Continue to {label} and grant Synq the requested publishing permissions.</ThemedText>
-            <PrimaryButton title={busy ? 'Connecting…' : `+ Connect ${label}`} onPress={connect} disabled={busy} />
-          </>
-        )}
-        {error ? <ThemedText type="small" style={{ color: AccentColors.error }}>{error}</ThemedText> : null}
-      </View>
+            </>
+          ) : !connection?.configured ? (
+            <InlineAlert tone="info" message={`${label} publishing is not set up on the server yet. It will be available once the Synq team adds its credentials.`} />
+          ) : connection.connected ? (
+            <>
+              <ThemedText type="small">
+                Account: <ThemedText type="smallBold">{connection.account_name || `your ${label} account`}</ThemedText>
+              </ThemedText>
+              <ThemedText type="caption" themeColor="textSecondary">
+                Synq verified this account with {label}. Each public post still needs your confirmation.
+              </ThemedText>
+              {platform === 'youtube' ? (
+                <View style={[styles.destinationRow, { borderColor: theme.border }]}>
+                  <View style={styles.destinationCopy}>
+                    <ThemedText type="smallBold">Use YouTube as a publishing destination</ThemedText>
+                    <ThemedText type="caption" themeColor="textSecondary">
+                      {connection.publishing_enabled ? 'On: YouTube is offered when you publish a reel.' : 'Off: YouTube is not offered when you publish a reel.'}
+                    </ThemedText>
+                  </View>
+                  <Switch
+                    label="Use YouTube as a publishing destination"
+                    value={connection.publishing_enabled}
+                    onValueChange={(enabled) => void togglePublishing(enabled)}
+                    disabled={busy}
+                  />
+                </View>
+              ) : null}
+              <View style={styles.actions}>
+                <Button label={`Disconnect ${label}`} variant="dangerOutline" icon={UnlinkIcon} disabled={busy} onPress={() => setConfirmDisconnect(true)} />
+              </View>
+            </>
+          ) : connection.needs_reconnect ? (
+            <>
+              <InlineAlert tone="warning" message={connection.verification_error ?? 'The provider rejected the saved authorization.'} />
+              <View style={styles.actions}>
+                <Button label={`Reconnect ${label}`} variant="primary" loading={busy} onPress={() => void connect()} />
+              </View>
+            </>
+          ) : connection.verification_error ? (
+            <>
+              <InlineAlert tone="warning" message={`${connection.verification_error} Synq will not mark this connection active until verification succeeds.`} />
+              <View style={styles.actions}>
+                <Button label="Retry verification" icon={RefreshIcon} disabled={busy} onPress={() => void refresh()} />
+              </View>
+            </>
+          ) : (
+            <>
+              <ThemedText type="small" themeColor="textSecondary">
+                Not connected. Continue to {label} and grant Synq the publishing permissions it asks for.
+              </ThemedText>
+              <View style={styles.actions}>
+                <Button label={`Connect ${label}`} variant="primary" icon={PlusIcon} loading={busy} onPress={() => void connect()} />
+              </View>
+            </>
+          )}
+          {error ? <InlineAlert tone="danger" message={error} /> : null}
+        </Card>
 
-      <Pressable accessibilityRole="button" onPress={() => router.push('/marketing')} style={styles.marketingLink}>
-        <ThemedText type="small" style={{ color: AccentColors.primaryLight }}>Go to Marketing to make a reel →</ThemedText>
-      </Pressable>
-    </ScrollView>
+        <View style={styles.actions}>
+          <LinkButton label="Go to Marketing to make a reel" icon={ArrowIcon} onPress={() => router.push('/marketing')} />
+        </View>
+      </ScrollView>
+
+      <ConfirmDialog
+        visible={confirmDisconnect}
+        title={`Disconnect ${label}?`}
+        description="Synq will stop publishing there until you connect it again. Posts already published stay up."
+        confirmLabel="Disconnect"
+        busy={busy}
+        onConfirm={() => {
+          void disconnect().finally(() => setConfirmDisconnect(false));
+        }}
+        onClose={() => setConfirmDisconnect(false)}
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: Spacing.three, padding: Spacing.five, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
-  header: { gap: Spacing.two },
-  card: { gap: Spacing.three, borderWidth: 1, borderRadius: Radius.card, padding: Spacing.four },
-  destinationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.three },
+  content: { gap: Spacing.four, padding: 28, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center' },
+  header: { gap: Spacing.three, alignItems: 'flex-start' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  titleText: { flex: 1, gap: 4 },
+  destinationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+    borderWidth: 1,
+    borderRadius: Radius.control + 2,
+    padding: 14,
+  },
   destinationCopy: { flex: 1, gap: Spacing.one },
-  marketingLink: { alignSelf: 'flex-start', paddingVertical: Spacing.two, paddingHorizontal: Spacing.three },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

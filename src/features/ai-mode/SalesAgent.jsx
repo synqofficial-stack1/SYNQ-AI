@@ -91,7 +91,9 @@ export default function SalesAgent({
   dept: deptProp,         // department chosen by the dashboard page (e.g. 'sales', 'general')
   onDeptChange,           // tell the dashboard when the user switches department inside the AI
   onClose,                // "Exit AI mode"
-  theme,                  // 'synq' = dark + gold dashboard theme
+  theme,                  // 'synq' = dark dashboard theme, 'synq-light' = light dashboard theme
+  initialPrompt,          // a message handed over from the dashboard's Ask Synq box
+  onPromptSent,           // tells the dashboard the handed-over message has been sent
 }) {
   const clientId = userId;
   const store = useMemo(() => storageFor(userId), [userId]);
@@ -244,6 +246,19 @@ export default function SalesAgent({
     if (embedded && window.innerWidth < 860) setPanelOpen(false);
     if (c?.dept && deptProp && c.dept !== deptProp) onDeptChange?.(c.dept);
   }
+
+  // A prompt handed over from the dashboard's Ask Synq box is sent once, in a
+  // fresh chat, exactly as if it had been typed here. `send` is a new
+  // function every render, so the effect reads the latest one through a ref.
+  const sendRef = useRef(null);
+  const sentPrompt = useRef(null);
+  useEffect(() => { sendRef.current = send; });
+  useEffect(() => {
+    if (!initialPrompt || sentPrompt.current === initialPrompt) return;
+    sentPrompt.current = initialPrompt;
+    sendRef.current?.(initialPrompt, undefined, undefined, true);
+    onPromptSent?.();
+  }, [initialPrompt, onPromptSent]);
 
   function newChat() { setPending([]); setEditing(null); setHistoryView(false); setActiveId(null); setInput(''); setSidebarOpen(false); inputRef.current?.focus(); }
   function openChat(id) { setActiveId(id); setSidebarOpen(false); }
@@ -539,7 +554,7 @@ export default function SalesAgent({
   );
 
   return (
-    <div className={`sa-app ${embedded ? 'sa-embedded' : ''} ${theme === 'synq' ? 'sa-theme-synq' : ''}`}>
+    <div className={`sa-app ${embedded ? 'sa-embedded' : ''} ${theme ? `sa-theme-${theme}` : ''}`}>
       {/* ---------- Sidebar ---------- */}
       {!embedded && <>
       <aside className={`sa-sidebar ${sidebarOpen ? 'open' : ''}`}>
