@@ -20,7 +20,6 @@ import {
   MegaphoneIcon,
   MessageIcon,
   PuzzleIcon,
-  SparkIcon,
   UsersIcon,
   type IconProps,
 } from '@/components/icons';
@@ -286,12 +285,7 @@ export function Sidebar({
               the sidebar through them and it sits on the dark rail with no box. */}
           <Image source={MARK} style={collapsed ? styles.logo : styles.logoBeside} contentFit="contain" accessibilityLabel="" />
           {collapsed ? null : (
-            <View style={styles.wordmarkRow}>
-              <Text style={styles.wordmark}>Synq</Text>
-              <View style={styles.sparkle}>
-                <SparkIcon size={14} color={SidebarColors.accent} strokeWidth={2.2} />
-              </View>
-            </View>
+            <Text style={styles.wordmark}>Synq</Text>
           )}
         </Pressable>
         {onToggleCollapsed ? (
@@ -441,9 +435,7 @@ const styles = StyleSheet.create({
   logo: { height: 30, width: 30 * MARK_ASPECT },
   // Sized to the wordmark's cap height plus its descender, so the two read as one lockup.
   logoBeside: { height: 34, width: 34 * MARK_ASPECT },
-  wordmarkRow: { flexDirection: 'row', alignItems: 'flex-start' },
   wordmark: { color: SidebarColors.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.8 },
-  sparkle: { marginLeft: 1, marginTop: -4 },
   collapse: {
     width: 32,
     height: 32,
