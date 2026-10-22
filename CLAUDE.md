@@ -1,8 +1,9 @@
 # Synq AI — operating manual for Claude Code
 
-This file describes the project **as it actually exists in this repository** (verified by reading
-the code on 2026-09-21). Anything that could not be verified from the repo is marked
-**Unknown / needs verification**. Deeper detail lives in `docs/`:
+This file describes the project **as it actually exists in this repository**. It was first written
+on 2026-09-21 and **re-verified against the repo and the live Supabase project on 2026-10-22**
+(see §0). Anything that could not be verified is marked **Unknown / needs verification**.
+Deeper detail lives in `docs/`:
 
 | Document | Contents |
 |---|---|
@@ -10,19 +11,51 @@ the code on 2026-09-21). Anything that could not be verified from the repo is ma
 | `docs/database.md` | Every table, column, constraint, RLS policy, trigger, bucket |
 | `docs/design-system.md` | Tokens, typography, components, branding, UI conventions |
 | `docs/roadmap.md` | What is built, half-built, blocked, and not started |
+| `docs/company-workspaces.md` | Organizations, owner approval, shared records |
+| `docs/sales-workspace.md` | Deal pipeline, meetings, quotations, targets |
+| `docs/email-outreach.md` | Gmail outreach duties, reply analysis, reports |
+| `docs/daily-ai-credits.md` | Server-enforced daily AI credit balance |
 
 ---
+
+## 0. Live state and repo/production drift (verified 2026-10-22)
+
+**Rule: production must never be changed without committing the same change here first.** On
+2026-10-22, six migrations and one Edge Function were found live but missing from the repo. They
+have been recovered verbatim (each file says so in its header comment). Before any deploy or
+migration, re-run the checks in §23 steps 5–6.
+
+Still open after that sync (needs a deliberate decision, not a silent fix):
+
+| Drift | Effect | Fix |
+|---|---|---|
+| `20261016091113_allow_4k_video_resolution.sql` (repo) widened `videos_duration_check` to `4,5,6,8,10,12,15`. Live only ran the resolution half (recorded as `20261016091518`). Live check is still `4,6,8`. | The deployed fal `generate-video` accepts 4–15 s, so 5/10/12/15 s requests **fail at the insert** in production. | Apply the duration part of `…091113` live. |
+| `20261010090000_sales_call_reports.sql` is **not applied**: `sales_runs.call_questions` does not exist live. `call-report` is **not deployed**, and the deployed `call-number` is the original version 18. | Call reports do not work in production. | Apply the migration, then deploy `call-number` and `call-report` together. |
+| `20261010180000_ai_mode_images.sql` and `20261013090000_ai_daily_credits.sql` are not in the live migration history, but their tables, functions and buckets exist live. | Applied by hand. Schema matches; history does not. | Record them as applied (`supabase migration repair`) rather than re-running them. |
+| `vapi_calls` table + `vapi-call-result` function exist, but nothing in `src/` starts a Vapi call. | Dead until a client is built. | Decide: build it or drop both. |
+| `social-auth` / `social-post` code is **back in the repo** and `/plugins` screens use `social_posts`. They were deleted in `5f6bf52` and later restored. | §12/§19 statements about social publishing being removed are outdated. | Treat social publishing as present but unverified. |
+
+Not verified on 2026-10-22: which Edge Function secrets are set, real usage numbers, and whether
+typecheck/lint still pass (the dependency install could not run in that environment).
+
 
 ## 1. Project overview and product purpose
 
 Synq AI is a **mobile-first app (Expo / React Native, also runs on web)** where a small business
-delegates work to "AI employees" grouped into departments. Today one department does real work:
+delegates work to "AI employees" grouped into departments. As of 2026-10-22:
 
-- **Sales** — type a phone number and a pitch; an ElevenLabs voice agent (Gemini as its brain,
-  Twilio carrying the line) calls the number, holds a two-way conversation, and writes back a
-  one-line note plus a hot/warm/cold read onto a call sheet.
-- **Marketing** — a Gemini brainstorming chat with a "generate video" action (Google Veo).
-- Supporting CRM screens: lead import, a manual cold-call queue, follow-ups, activity history.
+- **Company workspaces** — an owner creates a company; teammates request to join and the owner
+  approves. Leads, email duties, replies, reports and deals are shared inside the company.
+- **Sales** — a shared deal pipeline (stages, next actions, meetings, quotations, monthly
+  targets, CSV export) and **Gmail outreach duties** (AI-drafted emails, per-recipient sending,
+  reply sync every minute via `pg_cron`, AI reply analysis, reports). This is the most complete
+  flow. Single-number AI voice calling (ElevenLabs + Twilio) exists in code but depends on
+  provider setup (§20).
+- **Marketing** — a Gemini chat with video generation (**fal.ai Seedance**, not Veo, since
+  `0b79817`) and social publishing screens under `/plugins`.
+- **AI Mode** — a full-screen assistant with Pollinations image generation and posters.
+- Supporting CRM screens: lead import, follow-ups, activity history. `/cold-call` redirects to
+  Sales.
 
 The app name in `app.json` is "Synq AI", slug `synq-ai`, scheme `synqai`.
 
@@ -34,9 +67,10 @@ The app name in `app.json` is "Synq AI", slug `synq-ai`, scheme `synqai`.
 - **TypeScript ~6.0.3, `strict: true`**, path aliases `@/*` → `src/*`, `@/assets/*` → `assets/*`.
   `supabase/functions` is excluded from the app tsconfig (it is Deno, not RN).
 - **Supabase** (`@supabase/supabase-js` ^2.112.3): auth, Postgres + RLS, Edge Functions, Storage.
-- **Google Gemini** for all text generation and **Google Veo** for video, called only from Edge
-  Functions. **ElevenLabs Conversational AI** for voice calls, **Twilio** as the phone carrier
-  behind it, **Google Places (New)** for business discovery.
+- **Google Gemini** for text, **fal.ai Seedance 2.0** for video, **Pollinations** for images,
+  **Gmail API** for outreach, all called only from Edge Functions. **ElevenLabs Conversational
+  AI** for voice calls, **Twilio** as the phone carrier behind it, **Google Places (New)** for
+  business discovery.
 - Styling is **plain React Native `StyleSheet`** with tokens in `src/constants/theme.ts`.
 - ESLint 9 + `eslint-config-expo` (`eslint.config.js`, with a TypeScript import resolver so `@/`
   paths resolve).
@@ -59,20 +93,23 @@ src/
     index.tsx              redirect: session ? /(app) : /(auth)/login
     reset-password.tsx     password reset landing (outside the auth group on purpose)
     (auth)/                login, signup, forgot-password  (+ _layout guard)
-    (app)/                 dashboard, sales, marketing, cold-call, follow-ups,
-                           import-leads, upgrade, ceo, history/
-                           (+ _layout guard + AppShell)
+    (app)/                 dashboard, company, sales, marketing, ai-mode, plugins/,
+                           cold-call (redirect), follow-ups, import-leads, upgrade,
+                           ceo, history/   (+ _layout guard + AppShell)
+    (onboarding)/          personalised onboarding
+    workspace-setup.tsx    company name + owner/teammate choice after sign-in
   components/              shared UI (see docs/design-system.md)
+  features/ai-mode/        AI Mode (plain JS/JSX + CSS; bridge.ts talks to Supabase)
   hooks/                   use-session (auth context), use-theme, use-color-scheme
   lib/                     supabase client, auth helpers, feature data layers
     sales/                 runs.ts (sales data layer), compliance.ts, sources.ts
   constants/theme.ts       colors, spacing, radius, breakpoints, fonts
   types/database.ts        hand-written mirrors of the DB tables
 supabase/
-  migrations/*.sql         schema (10 files, applied in filename order)
-  functions/*/index.ts     8 Deno Edge Functions
-  tests/rls_isolation_test.sql   paste-into-SQL-editor RLS proof
-scripts/                   developer CLI tools (Node, not part of the app)
+  migrations/*.sql         schema, applied in filename order (see §0 for live drift)
+  functions/*/index.ts     Deno Edge Functions; shared code in functions/_shared/
+  tests/*.sql              rollback-only SQL proofs (RLS, admin, workspaces, sales, email, credits)
+scripts/                   developer CLI tools + Node test suites (`npm run test:*`)
 assets/images/             icons, splash, synq-logo.jpg
 ```
 
@@ -92,7 +129,9 @@ assets/images/             icons, splash, synq-logo.jpg
 | `supabase/functions/call-number/index.ts` | Single-number voice call: start + status polling; the path the Sales screen uses. |
 | `supabase/functions/place-calls/index.ts` | Batch calling for a whole approved run (ElevenLabs batch API). **Currently not reachable from any screen.** |
 | `supabase/functions/discover-prospects/index.ts` | Google Places search + screening; writes `prospects`. |
-| `supabase/functions/generate-video/index.ts` | Veo start/check, stores the file in the `videos` bucket. |
+| `supabase/functions/generate-video/index.ts` | fal.ai Seedance start/check, stores the file in the `generated-videos` bucket. |
+| `supabase/functions/email-outreach/index.ts`, `email-worker/index.ts` | Gmail outreach: drafting, sending, reply sync and analysis. Gmail tokens are encrypted server-side. |
+| `src/components/sales-workspace.tsx`, `src/components/email-outreach.tsx` | The two largest screens: the deal pipeline and the email duty workspace. |
 | `supabase/functions/run-task/index.ts` | Older one-shot task runner writing `tasks` rows (History screens read these). Keep it. |
 | `supabase/functions/admin-console/index.ts` | **The authorization boundary for `/ceo`.** Checks `app_admins` with the service-role key before reading anything, then returns the whole-platform snapshot, activity feed, search and user drill-down. |
 | `src/lib/admin.ts` | Client for that function. `isAdmin()` only decides whether to *show* the console — it is not a security check. |
@@ -119,28 +158,40 @@ assets/images/             icons, splash, synq-logo.jpg
 
 ## 6. Supabase architecture
 
-- **Postgres + RLS on every table.** Every policy is `auth.uid() = user_id`, with `using` *and*
-  `with check` on updates, and `exists` ownership checks where a row points at a parent
-  (`prospects.run_id`, `messages.conversation_id`, `videos.conversation_id`).
+- **Postgres + RLS on every table.** Personal tables use `auth.uid() = user_id`, with `using`
+  *and* `with check` on updates, and `exists` ownership checks where a row points at a parent
+  (`prospects.run_id`, `messages.conversation_id`, `videos.conversation_id`). **Company tables**
+  (leads, outreach, `sales_deals`, `sales_targets`) use approved-membership checks through
+  `security definer` helpers such as `current_organization()` and `owns_organization()`.
+  Several tables (`ai_credit_*`, `outreach_mailboxes`, `outreach_*oauth_states`,
+  `outreach_suppressions`, `oauth_states`, `social_connections`) have RLS on with **no policies on
+  purpose**: only the service role touches them.
 - **Edge Functions (Deno)** hold every third-party key. The app never calls Gemini, Veo,
   ElevenLabs, Twilio or Google Places directly.
-- **Storage**: private buckets `videos` (with owner-scoped policies) and `call-audio` (no policies;
-  service-role writes, signed URLs out).
-- **Deployed functions** (verified live 2026-09-21): `run-task`, `chat`, `discover-prospects`,
-  `place-calls`, `call-result` (verify_jwt off), `generate-video`, `call-audio`, `call-number`,
-  `admin-console`,
-  plus **`social-auth` and `social-post`, which are deployed but no longer exist in this repo**
-  (their code was deleted in commit `5f6bf52`). Treat those two as dead: nothing in the app calls
-  them, and their secrets are not set.
+- **Storage** (live 2026-10-22): private buckets `generated-videos`, `ai-images`,
+  `marketing-uploads` and `call-audio`.
+- **Deployed functions** (verified live 2026-10-22): `admin-console`, `call-audio`,
+  `call-number` (v18, older than the repo), `call-result` (verify_jwt off), `chat`,
+  `discover-prospects`, `email-outreach`, `email-worker` (verify_jwt off), `generate-image`,
+  `generate-video` (fal), `gmail-auth` (verify_jwt off), `place-calls`, `run-task`,
+  `social-auth` (verify_jwt off), `social-post`, `vapi-call-result` (verify_jwt off).
+  **In the repo but not deployed:** `call-report`.
 - The Supabase **CLI is not logged in** in this environment; migrations and deploys are done with
   the Supabase MCP tools (`apply_migration`, `deploy_edge_function`, `execute_sql`). Project ref:
   `jjdrlgwpvxyxeruyygli` (the URL and publishable key live in `.env.local`, which is gitignored).
 
 ## 7. Database schema (summary — full detail in `docs/database.md`)
 
-`profiles`, `departments`, `leads`, `tasks`, `calls`, `campaigns`, `content_items`,
-`conversations`, `messages`, `company_facts`, `sales_runs`, `prospects`, `videos`,
-`app_admins`, `events`.
+Original core: `profiles`, `departments`, `leads`, `tasks`, `calls`, `campaigns`,
+`content_items`, `conversations`, `messages`, `company_facts`, `sales_runs`, `prospects`,
+`videos`, `app_admins`, `events`.
+
+Added since (see the migrations and `docs/`): `organizations`, `organization_members`,
+`sales_deals`, `sales_targets`, `outreach_campaigns`, `outreach_recipients`,
+`outreach_messages`, `outreach_mailboxes`, `outreach_oauth_states`, `outreach_suppressions`,
+`ai_credit_accounts`, `ai_credit_debits`, `generated_images`, `user_onboarding_profiles`,
+`onboarding_events`, `social_connections`, `social_posts`, `oauth_states`, `marketing_media`,
+`marketing_post_drafts`, `vapi_calls`. `docs/database.md` predates most of these.
 
 Relationships that matter:
 
@@ -159,17 +210,23 @@ Relationships that matter:
 
 ## 8. Multi-tenant / workspace model
 
-There is **no organisation, team or workspace table**. A "workspace" is one `auth.users` row:
-every table carries `user_id` and RLS scopes all access to the signed-in user. There is no sharing,
-no invitations, and the only role that exists is the platform-owner row in `app_admins` (which
-grants read-across-users in the CEO console, not membership of anything). Any multi-user feature would be new architecture, not a config change.
+**Superseded 2026-10-21** by `20261021090000_company_workspaces.sql` (detail:
+`docs/company-workspaces.md`). There are now `organizations` and `organization_members` tables.
+The first person to claim a company name is its owner; anyone else becomes a **pending** member
+until the owner approves. Pending and removed users cannot read company records. Leads, email
+duties, replies, reports, deals and targets are shared per company; AI chats and Gmail
+credentials stay personal. Only the owner can approve, remove or set targets. Ownership is
+self-declared, not verified, and owner transfer / account deletion are not implemented.
+
+`app_admins` is unchanged: it grants platform-wide read in the CEO console, not membership.
 
 ## 9. API architecture and client/server boundary
 
 - The client talks to Postgres through supabase-js (RLS-enforced) and to Edge Functions through
-  `supabase.functions.invoke(...)`. Functions called from the app: `chat`, `run-task`,
-  `discover-prospects`, `generate-video`, `call-number`, `admin-console`, and `place-calls` (that
-  last one via `startCalling()` in `runs.ts`, which no screen currently calls).
+  `supabase.functions.invoke(...)`. Functions called from the app (2026-10-22 grep): `chat`,
+  `run-task`, `generate-image`, `generate-video`, `admin-console`, `email-outreach`, the sales
+  functions via `src/lib/sales/runs.ts`, `discover-prospects` via `sources.ts`, and the social
+  functions via `src/lib/social.ts`. `email-worker` is run by `pg_cron` every minute, not by the app.
 - Everything is client-rendered React Native. Expo's web build does prerender HTML
   (`web.output: "static"`), so **any module that touches `window` at import time breaks the web
   build** — see the AsyncStorage note in `src/lib/supabase.ts`.
@@ -203,14 +260,17 @@ Redux/Zustand/React Query/Context store — do not add one without asking.
 - **Dashboard** (`(app)/index.tsx`): greeting, metrics, a 14-day usage bar chart, departments list,
   recent activity, quick actions, and an assistant chat. All numbers come from the user's own rows
   via `src/lib/workspace.ts` — **there is no analytics service, and none of it is demo data**.
-- **Sales** (`(app)/sales.tsx`): dashboard tiles + "How the calls went" + recent-calls sheet on the
-  left; a "Call a number" panel on the right (phone, pitch, permission checkbox, live call state,
-  transcript). Google Maps discovery and whole-list calling are **not on this screen** right now,
-  though the code for them still exists (`runs.ts`, `discover-prospects`, `place-calls`).
-- **Sales sub-pages**: `/cold-call` (manual dialer queue using `tel:` links, logs outcomes),
+- **Sales** (`(app)/sales.tsx`, updated 2026-10-21): opens the shared company pipeline
+  (`components/sales-workspace.tsx`) with tabs for Next actions, Meetings, Quotations, Targets and
+  Email duties; **Email duty** opens the Gmail outreach workspace
+  (`components/email-outreach.tsx`). See `docs/sales-workspace.md` and `docs/email-outreach.md`.
+  Google Maps discovery and whole-list calling are still not reachable from the UI.
+- **Sales sub-pages**: `/cold-call` now **redirects to Sales** (old call records are kept),
   `/follow-ups` (callbacks due), `/import-leads` (CSV/spreadsheet import).
-- **Marketing** (`(app)/marketing.tsx`): a single `ChatPanel` with `kind="campaign"` and
-  `enableVideo`. It cannot post anywhere — social publishing was removed in `5f6bf52`.
+- **Marketing** (`(app)/marketing.tsx`): a `ChatPanel` with `kind="campaign"` and video
+  generation via fal. Social publishing code is present again (`/plugins`, `social-auth`,
+  `social-post`, `marketing_media`, `marketing_post_drafts`), but whether its OAuth secrets are set
+  live is **Unknown / needs verification**.
 - **Plans** (`(app)/upgrade.tsx`): hardcoded pricing tiers. The screen itself states there is no
   payment provider. **Not a billing system.**
 - **CEO Control Center** (`(app)/ceo.tsx`, route `/ceo`): the whole platform for the accounts in
@@ -219,8 +279,10 @@ Redux/Zustand/React Query/Context store — do not add one without asking.
   Revenue, organisations and automations appear as **named gaps with the reason**, because Synq has
   no data source for them. The nav item is hidden for everyone else, but the boundary is the
   `admin-console` function, which 403s a signed-in non-admin.
-- **Automations / integrations / notifications / settings**: **not implemented.** No scheduler, no
-  webhook receivers other than `call-result`, no settings screen, no notification code.
+- **Automations / notifications / settings**: mostly not implemented. The only scheduler is the
+  `pg_cron` job `synq-email-replies` (every minute) for outreach. Webhook receivers: `call-result`
+  and `vapi-call-result`. The sidebar has a Settings entry, but there is no settings feature. The
+  only notification is the in-app pending-member banner for company owners.
 
 ## 13. Voice-calling pipeline (the most safety-sensitive part)
 
@@ -251,9 +313,18 @@ Supabase Edge Function secrets, by function:
 | `GOOGLE_PLACES_API_KEY` | `discover-prospects` |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | `call-number`, `place-calls` |
 | `ELEVENLABS_WEBHOOK_SECRET` | `call-result` |
-| `VEO_MODEL` (optional override) | `generate-video` |
+| `FAL_AI_API_KEY` (alias `FAL_KEY`) | `generate-video` |
 | `POLLINATIONS_API_KEY`, `POLLINATIONS_IMAGE_MODEL` (optional model override) | `generate-image` (AI Mode images/poster backgrounds) |
+| `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_TOKEN_ENCRYPTION_KEY`, `GMAIL_ALLOWED_ORIGINS`, `OUTREACH_WORKER_SECRET`, `OUTREACH_AI_MODEL` (optional) | `gmail-auth`, `email-outreach`, `email-worker` |
+| `CALL_REPORT_MODEL` (optional), `SALES_CALL_PROVIDER` | call reports / call provider choice |
+| `VAPI_WEBHOOK_SECRET` | `vapi-call-result` |
+| `SOCIAL_TOKEN_ENCRYPTION_KEY`, `SOCIAL_ALLOWED_ORIGINS`, `X_CLIENT_*`, `YOUTUBE_*` | `social-auth`, `social-post` |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | injected by the platform |
+
+Gmail outreach requests `gmail.send` (sensitive) and `gmail.readonly` (**restricted**). Google
+requires app verification before users outside the OAuth client's test-user list can connect, and
+restricted scopes normally also require an annual third-party security assessment. Plan for this
+before inviting real customers.
 
 Developer-only names also present in `.env.local` for `scripts/`: `ELEVEN_LABS_API`,
 `ELEVEN_LABS_KEY_ID_OLD`, `ELEVENLABS_VOICE_ID`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
@@ -270,10 +341,19 @@ node node_modules/typescript/bin/tsc --noEmit          # typecheck
 node node_modules/expo/bin/cli export --platform web   # production web build
 ```
 
-There is no test runner and no test script. The automated checks of behaviour are the SQL proofs
-in `supabase/tests/` — `rls_isolation_test.sql` (per-user isolation) and `admin_access_test.sql`
-(the CEO console's five access rules) — run by hand in the Supabase SQL editor. Both assert rather
-than print: they raise if a claim stops holding.
+```bash
+npm run test:calls  test:ai-mode  test:credits  test:email  test:sales  test:video
+```
+
+These use Node's built-in test runner and need no install. GitHub Actions
+(`.github/workflows/tests.yml`) runs all six on pushes and PRs to `main`/`master`. On 2026-10-22
+all passed (65 + 4 video). There are **no browser tests**; the Playwright template test was removed
+because it tested playwright.dev, not Synq. `playwright.config.ts` and the dependency remain for
+when a real end-to-end test is written.
+
+The SQL proofs in `supabase/tests/*.sql` (RLS isolation, admin access, company workspaces, sales
+workspace, email outreach, AI credits) are run by hand in the Supabase SQL editor. They assert
+rather than print, and the newer ones run in rollback-only transactions.
 
 Environment quirks worth knowing: **PowerShell's execution policy blocks `npx`/`npm` here**, so run
 Node tooling through the Bash tool with explicit paths as above. The Supabase CLI is not logged in;
@@ -281,9 +361,11 @@ use the Supabase MCP tools instead.
 
 ## 16. Git conventions
 
-- Current branch: **`redesign`** (also `master`). Recent history is small, focused commits with
-  short imperative subjects, e.g. "Sales calls one number; drop social publishing",
-  "Marketing is one chat now".
+- Default branch on GitHub (`synqofficial-stack1/SYNQ-AI`): **`main`**. Work lands through
+  feature branches and pull requests (e.g. `codex/email-outreach`, `codex/daily-ai-credits`).
+  Prefer small, focused commits with short imperative subjects, e.g. "Marketing is one chat now".
+- More than one AI agent works on this repo. Follow `AGENTS.md`: inspect the tree first, never
+  discard someone else's work, and never change production without committing the change.
 - Commit messages explain *why* in the body when the change is not obvious.
 - End commit messages with: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 - Never `git add -A` blindly — stage explicit paths. `.env*` is gitignored except `.env.example`.
@@ -328,12 +410,23 @@ use the Supabase MCP tools instead.
 - Polling over Realtime/webhooks for long jobs (video, calls) — simpler and needs no public URL.
 - `metro.config.js` sets `unstable_enablePackageExports = false` (Supabase + Metro web bug).
   **Do not remove it.**
-- Marketing was deliberately reduced from CRUD pages to one chat; social publishing was removed.
+- Marketing was deliberately reduced from CRUD pages to one chat. Social publishing was removed in
+  `5f6bf52` and **restored in `1831203`** (2026-10-10); treat the later restore as current.
+- Video moved from Google Veo to **fal.ai Seedance 2.0** (`0b79817`, 2026-10-18).
+- Teams use company workspaces with owner approval (2026-10-21), not invitations.
 
 ## 20. Known limitations and incomplete work
 
-- Integration status, **verified live on 2026-09-21 by the CEO console's health check** (which
-  reads only whether a secret is present):
+- **Start with §0** for the repo/production drift found on 2026-10-22.
+- Security advisor (2026-10-22): leaked-password protection is **off** (dashboard toggle);
+  `marketing_agent_system_instructions` and `sales_agent_system_instructions` have a mutable
+  `search_path`; seven `security definer` RPCs are executable by signed-in users
+  (`current_organization`, `get_ai_usage`, `organization_people`, `owns_organization`,
+  `review_organization_member`, `setup_workspace`, `workspace_identity`). Those seven are likely
+  intentional, but each needs a reviewed reason recorded here.
+- Integration status below is **from 2026-09-21 and is stale**. Video has since moved to fal, so
+  the Veo line no longer applies. Re-check secrets before claiming any provider works.
+  It was verified by the CEO console's health check (which reads only whether a secret is present):
   - `GEMINI_API_KEY` **is** set; the most recent Gemini call succeeded.
   - `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` are **not set**, so
     voice calling cannot dial at all. A paid Twilio account and a number linked to the agent are
@@ -347,11 +440,11 @@ use the Supabase MCP tools instead.
 - `place-calls`, `discoverForRun`, `startCalling`, `approveRun`, `runToCsv` and
   `src/lib/sales/sources.ts` are currently unreachable from the UI.
 - `campaigns`, `content_items`, `company_facts` tables have no UI.
-- `/upgrade` is a price list with no payments. No settings, notifications, automations or
-  integrations screens exist.
-- `social-auth` / `social-post` are deployed on Supabase but deleted from the repo.
-- Lint reports ~14 pre-existing problems (mostly `react-hooks/set-state-in-effect`) in older
-  screens; typecheck and the web build are clean.
+- `/upgrade` is a price list with no payments. There is no billing, subscription or entitlement
+  logic anywhere.
+- Lint reported ~14 pre-existing problems (mostly `react-hooks/set-state-in-effect`) on
+  2026-09-21, with a clean typecheck and web build. **Not re-run since** the large October
+  additions; run both before trusting that.
 
 ## 21. Things Claude must not break
 

@@ -1,0 +1,25 @@
+name: Tests
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+jobs:
+  unit:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    # These suites use only Node's built-in test runner, so no install step is
+    # needed. They replace a Playwright template that tested playwright.dev,
+    # not Synq. Add real browser tests back with a webServer in
+    # playwright.config.ts when there is a flow worth driving end to end.
+    - run: npm run test:calls
+    - run: npm run test:ai-mode
+    - run: npm run test:credits
+    - run: npm run test:email
+    - run: npm run test:sales
+    - run: npm run test:video
