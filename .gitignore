@@ -74,3 +74,6 @@ supabase/.temp/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Design reference mockups: kept locally, not shipped in the repo (13 MB of PNGs).
+ui eg/
