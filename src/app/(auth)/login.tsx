@@ -1,18 +1,20 @@
 import { Link, router } from 'expo-router';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuthBackdrop, BrandMark } from '@/components/auth-backdrop';
+import { AppleSignInButton } from '@/components/apple-sign-in-button';
 import { GoldButton, GoogleButton, OrDivider } from '@/components/auth-buttons';
 import { AuthCard } from '@/components/auth-card';
 import { AuthField } from '@/components/auth-field';
 import { EyeIcon, EyeOffIcon, LockIcon, MailIcon } from '@/components/auth-icons';
 import { AccentColors } from '@/constants/theme';
-import { authErrorMessage, googleSignInIsEnabled, signInWithGoogle } from '@/lib/auth';
+import { authErrorMessage, googleSignInIsEnabled, signInWithApple, signInWithGoogle } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 
 /** Which button is busy. Only one sign-in can be in flight at a time. */
-type Busy = 'password' | 'google' | null;
+type Busy = 'password' | 'google' | 'apple' | null;
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -21,6 +23,7 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -30,6 +33,11 @@ export default function LoginScreen() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => setAppleAvailable(false));
   }, []);
 
   async function handleLogin() {
@@ -68,19 +76,27 @@ export default function LoginScreen() {
     }
   }
 
+  async function handleApple() {
+    setError(null);
+    setBusy('apple');
+    try {
+      if (await signInWithApple()) router.replace('/(app)');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : authErrorMessage(null));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <AuthBackdrop>
       <BrandMark />
 
       <AuthCard>
-        {googleEnabled ? (
+        {appleAvailable || googleEnabled ? (
           <>
-            <GoogleButton
-              title="Continue with Google"
-              onPress={handleGoogle}
-              loading={busy === 'google'}
-              disabled={busy !== null}
-            />
+            {appleAvailable ? <AppleSignInButton onPress={handleApple} disabled={busy !== null} /> : null}
+            {googleEnabled ? <GoogleButton title="Continue with Google" onPress={handleGoogle} loading={busy === 'google'} disabled={busy !== null} /> : null}
             <OrDivider />
           </>
         ) : null}

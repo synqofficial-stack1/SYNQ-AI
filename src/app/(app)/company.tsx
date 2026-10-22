@@ -4,6 +4,7 @@ import { ModalSheet } from '@/components/modal-sheet';
 import { PrimaryButton } from '@/components/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors } from '@/constants/theme';
+import { CompanyCollaboration } from '@/components/company-collaboration';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { useTheme } from '@/hooks/use-theme';
 import {
@@ -70,6 +71,12 @@ export default function CompanyScreen() {
         Company workspace · You are{' '}
         {owner ? 'the owner' : 'an approved team member'}.
       </ThemedText>
+      <View style={{ padding: 20, gap: 8, borderRadius: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+        <ThemedText type="sectionTitle">Company details</ThemedText>
+        <ThemedText type="smallBold">Company name</ThemedText>
+        <ThemedText type="small">{identity?.membership?.company_name || '—'}</ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">The current workspace record stores the company name only. No owner visibility controls are shown for private or unsupported fields.</ThemedText>
+      </View>
       <View
         style={{
           padding: 22,
@@ -81,14 +88,14 @@ export default function CompanyScreen() {
         }}
       >
         <ThemedText type="sectionTitle">
-          Work together, with clear permissions
+          Welcome to the team! Work together, support one another, and help each other succeed.
         </ThemedText>
         <ThemedText type="small">
-          Approved teammates share leads, email duties, replies, and reports.
-          Only the original sender can send, pause, or sync a duty using their
-          Gmail. Gmail tokens and personal AI chats remain private.
+          Approved teammates can collaborate on shared Sales work, replies, and
+          reports. Personal Gmail connections and AI chats remain private.
         </ThemedText>
       </View>
+      <CompanyCollaboration />
       {!!error && (
         <ThemedText
           accessibilityRole="alert"
@@ -138,7 +145,7 @@ export default function CompanyScreen() {
               <ThemedText type="caption" themeColor="textSecondary">
                 Requested {new Date(person.requested_at).toLocaleString()}.
                 Approving grants access to the shared company work and adds
-                their existing leads/email duties to it.
+                their existing leads and sales follow-ups to it.
               </ThemedText>
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <View style={{ flex: 1 }}>
@@ -206,7 +213,7 @@ export default function CompanyScreen() {
         visible={!!remove}
         onClose={() => setRemove(null)}
         title="Remove company access?"
-        description={`${remove?.name || remove?.email || 'This person'} will lose access to shared leads, duties, replies, and reports. Their active company email duties will pause. Existing company records are retained.`}
+        description={`${remove?.name || remove?.email || 'This person'} will lose access to shared leads, replies, and reports. Their active company sales follow-ups will pause. Existing company records are retained.`}
       >
         <PrimaryButton
           title="Remove access"

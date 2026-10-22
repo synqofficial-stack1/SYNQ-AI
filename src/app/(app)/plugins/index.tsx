@@ -22,7 +22,6 @@ const CATALOG: {
   { platform: 'youtube', category: 'Video', glyph: '▶', description: 'Connect a YouTube channel and publish approved Synq reels as Shorts.' },
   { platform: 'instagram', category: 'Social', glyph: '◎', description: 'Connect an Instagram professional account to publish approved reels.' },
   { platform: 'x', category: 'Social', glyph: '𝕏', description: 'Connect X to publish approved short videos with a caption.' },
-  { platform: 'linkedin', category: 'Social', glyph: 'in', description: 'Connect LinkedIn to publish approved videos to your member profile.' },
 ];
 
 const pushPlugin = (platform: SocialPlatform) =>

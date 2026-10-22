@@ -514,8 +514,7 @@ export default function DashboardScreen() {
                 </View>
                 <ThemedText type="small">No automations yet</ThemedText>
                 <ThemedText type="caption" themeColor="textSecondary">
-                  Email duties continue checking for replies after you approve sending. Chats and videos run because
-                  you asked for it.
+                  Nothing runs automatically here. Chats and videos start when you ask for them.
                 </ThemedText>
               </View>
             </GlassCard>

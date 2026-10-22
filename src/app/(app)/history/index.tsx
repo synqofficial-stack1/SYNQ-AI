@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { AccentColors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { AccentColors, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { listTasks } from '@/lib/tasks';
 import type { Task } from '@/types/database';

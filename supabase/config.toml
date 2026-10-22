@@ -40,3 +40,9 @@ verify_jwt = true
 [functions.email-worker]
 # Scheduled calls use an independent server-only secret, checked in the handler.
 verify_jwt = false
+
+[functions.request-ceo-alert]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true

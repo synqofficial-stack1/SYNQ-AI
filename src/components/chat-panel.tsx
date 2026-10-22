@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { TextField } from '@/components/text-field';
@@ -88,10 +88,12 @@ export function ChatPanel({
   useEffect(() => {
     let cancelled = false;
     const selection = ++selectionRef.current;
-    setConversationId(undefined);
-    setTurns([]);
-    setHydrating(resume);
-    setHistoryLoading(true);
+    startTransition(() => {
+      setConversationId(undefined);
+      setTurns([]);
+      setHydrating(resume);
+      setHistoryLoading(true);
+    });
 
     listConversations(kind)
       .then((items) => {
@@ -103,7 +105,7 @@ export function ChatPanel({
       });
 
     if (!resume) {
-      setHydrating(false);
+      startTransition(() => setHydrating(false));
       return () => {
         cancelled = true;
       };

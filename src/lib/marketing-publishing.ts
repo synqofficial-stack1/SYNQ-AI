@@ -16,6 +16,8 @@ export type MarketingDraft = {
   youtube_visibility: 'public' | 'unlisted' | 'private';
   status: 'draft' | 'ready_for_review'; created_at: string; updated_at: string;
 };
+export type MarketingDraftPostStatus = Pick<SocialPost, 'id' | 'draft_id' | 'platform' | 'status' | 'post_url' | 'error'>;
+export type MarketingDraftWithMedia = MarketingDraft & { marketing_media: MarketingMedia; social_posts: MarketingDraftPostStatus[] };
 
 export async function uploadVideoFile(file: Blob, path: string, onProgress: (percent: number) => void) {
   const { data: sessionData } = await supabase.auth.getSession();
@@ -62,7 +64,25 @@ export async function saveDraft(input: Omit<MarketingDraft, 'id' | 'user_id' | '
 export async function listDrafts() {
   const { data, error } = await supabase.from('marketing_post_drafts').select('*, marketing_media(*)').order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []) as (MarketingDraft & { marketing_media: MarketingMedia })[];
+  const drafts = (data ?? []) as (MarketingDraft & { marketing_media: MarketingMedia })[];
+  if (!drafts.length) return [] as MarketingDraftWithMedia[];
+  const { data: postRows, error: postError } = await supabase.from('social_posts')
+    .select('id, draft_id, platform, status, post_url, error')
+    .in('draft_id', drafts.map((draft) => draft.id));
+  if (postError) throw new Error(postError.message);
+  const postsByDraft = new Map<string, MarketingDraftPostStatus[]>();
+  for (const post of (postRows ?? []) as MarketingDraftPostStatus[]) {
+    if (!post.draft_id) continue;
+    postsByDraft.set(post.draft_id, [...(postsByDraft.get(post.draft_id) ?? []), post]);
+  }
+  return drafts.map((draft) => ({ ...draft, social_posts: postsByDraft.get(draft.id) ?? [] }));
+}
+
+export async function listUploadedMedia() {
+  const { data, error } = await supabase.from('marketing_media')
+    .select('*').eq('status', 'uploaded').order('created_at', { ascending: false }).limit(100);
+  if (error) throw new Error(`Could not load uploaded videos: ${error.message}`);
+  return (data ?? []) as MarketingMedia[];
 }
 
 export async function draftPreviewUrl(path: string) {

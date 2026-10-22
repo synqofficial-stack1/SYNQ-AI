@@ -113,10 +113,10 @@ function SetupForm({
           {agree ? '☑' : '☐'}
         </ThemedText>
         <ThemedText type="caption" style={{ flex: 1 }}>
-          I understand that approved company members share leads, email duties,
-          replies, and reports. My existing leads and email duties will join
-          this workspace once I’m approved. Personal Gmail connections and AI
-          chats stay private.
+          I understand that approved company members share Sales work, replies,
+          and reports. My existing leads and sales follow-ups will join this
+          workspace once I’m approved. Personal Gmail connections and AI chats
+          stay private.
         </ThemedText>
       </Pressable>
       {!!error && (

@@ -376,6 +376,67 @@ async function refreshYouTubeConnection(db: ReturnType<typeof admin>, userId: st
   return next;
 }
 
+/** Refresh supported provider grants before verification so a quiet account
+ * does not appear logged out simply because its short-lived token aged out. */
+async function refreshConnectionIfNeeded(db: ReturnType<typeof admin>, userId: string, platform: Platform, conn: Connection): Promise<Connection> {
+  if (!conn.expires_at) return conn;
+  const remaining = new Date(conn.expires_at).getTime() - Date.now();
+  let next: Connection;
+  if (platform === 'youtube' && remaining <= 60_000 && conn.refresh_token) {
+    return refreshYouTubeConnection(db, userId, conn);
+  }
+  if (platform === 'instagram' && remaining <= 7 * 24 * 3600 * 1000 && remaining > 0) {
+    const url = new URL('https://graph.instagram.com/refresh_access_token');
+    url.searchParams.set('grant_type', 'ig_refresh_token');
+    url.searchParams.set('access_token', conn.access_token);
+    const response = await fetch(url);
+    const body = await readJson(response);
+    if (!response.ok || !body?.access_token) throw new Error('Instagram could not refresh this connection. Try again shortly.');
+    next = { ...conn, access_token: String(body.access_token), expires_at: new Date(Date.now() + (Number(body.expires_in) || 60 * 24 * 3600) * 1000).toISOString() };
+  } else if (platform === 'x' && remaining <= 60_000 && conn.refresh_token) {
+    const creds = credentials('x');
+    if (!creds) throw new Error('X could not refresh this connection. Try again shortly.');
+    const response = await fetch('https://api.x.com/2/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${btoa(`${creds.id}:${creds.secret}`)}` },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: conn.refresh_token, client_id: creds.id }),
+    });
+    const body = await readJson(response);
+    if (!response.ok || !body?.access_token) throw new Error('Your X authorization needs reconnecting.');
+    next = {
+      ...conn,
+      access_token: String(body.access_token),
+      refresh_token: typeof body.refresh_token === 'string' ? body.refresh_token : conn.refresh_token,
+      expires_at: body.expires_in ? new Date(Date.now() + Number(body.expires_in) * 1000).toISOString() : null,
+    };
+  } else if (platform === 'linkedin' && remaining <= 24 * 3600 * 1000 && conn.refresh_token) {
+    const creds = credentials('linkedin');
+    if (!creds) throw new Error('LinkedIn could not refresh this connection. Try again shortly.');
+    const response = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: conn.refresh_token, client_id: creds.id, client_secret: creds.secret }),
+    });
+    const body = await readJson(response);
+    if (!response.ok || !body?.access_token) throw new Error('Your LinkedIn authorization needs reconnecting.');
+    next = {
+      ...conn,
+      access_token: String(body.access_token),
+      refresh_token: typeof body.refresh_token === 'string' ? body.refresh_token : conn.refresh_token,
+      expires_at: body.expires_in ? new Date(Date.now() + Number(body.expires_in) * 1000).toISOString() : null,
+    };
+  } else {
+    return conn;
+  }
+  const { error } = await db.from('social_connections').update({
+    access_token: await encryptToken(next.access_token),
+    refresh_token: next.refresh_token ? await encryptToken(next.refresh_token) : null,
+    expires_at: next.expires_at,
+  }).eq('user_id', userId).eq('platform', platform);
+  if (error) throw new Error('Could not save the refreshed plugin connection.');
+  return next;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
@@ -517,17 +578,19 @@ Deno.serve(async (req) => {
             expires_at: row.expires_at,
             scopes: row.scopes ?? '',
           };
-          if (platform === 'youtube' && connection.refresh_token && connection.expires_at && new Date(connection.expires_at).getTime() - Date.now() <= 60_000) {
+          const refreshWindow = platform === 'instagram' ? 7 * 24 * 3600 * 1000 : platform === 'linkedin' ? 24 * 3600 * 1000 : 60_000;
+          if (connection.expires_at && new Date(connection.expires_at).getTime() - Date.now() <= refreshWindow) {
             try {
-              connection = await refreshYouTubeConnection(db, user.id, connection);
+              connection = await refreshConnectionIfNeeded(db, user.id, platform, connection);
             } catch (error) {
               const revoked = error instanceof YouTubeRefreshError && error.permanentlyRejected;
+              const reconnect = revoked || ((platform === 'x' || platform === 'linkedin') && error instanceof Error && error.message.includes('reconnecting'));
               return {
                 ...base,
-                needs_reconnect: revoked,
-                verification_error: revoked
-                  ? 'Your YouTube authorization was revoked or expired. Reconnect YouTube.'
-                  : 'Google could not refresh the YouTube login. Try again shortly.',
+                needs_reconnect: reconnect,
+                verification_error: reconnect
+                  ? `Your ${platform === 'youtube' ? 'YouTube' : platform === 'linkedin' ? 'LinkedIn' : 'X'} authorization expired. Reconnect ${platform === 'youtube' ? 'YouTube' : platform === 'linkedin' ? 'LinkedIn' : 'X'}.`
+                  : `Could not refresh your ${platform === 'instagram' ? 'Instagram' : 'YouTube'} connection. Try again shortly.`,
               };
             }
           }

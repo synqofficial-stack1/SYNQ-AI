@@ -748,7 +748,7 @@ export function EmailOutreach({
             Ready for your first email duty?
           </ThemedText>
           <Muted>
-            Open Email duty beside AI mode to add recipients and write your
+            Use the Email duties tab in Sales to add recipients and write your
             message. This page keeps previous duties, replies, graphs, and
             reports together once there is activity.
           </Muted>

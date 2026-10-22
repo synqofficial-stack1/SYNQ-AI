@@ -19,7 +19,9 @@ import { supabase } from '@/lib/supabase';
 
 export type SocialPlatform = 'youtube' | 'instagram' | 'x' | 'linkedin';
 
-export const SOCIAL_PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'x', 'linkedin'];
+// LinkedIn stays in the underlying types so existing connection records remain
+// readable, but it is no longer offered for new connections or publishing.
+export const SOCIAL_PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'x'];
 
 export const SOCIAL_LABELS: Record<SocialPlatform, string> = {
   youtube: 'YouTube',
@@ -129,13 +131,13 @@ export async function setPublishingEnabled(platform: SocialPlatform, enabled: bo
 /**
  * Starts the platform's login and resolves once it is connected.
  *
- * YouTube navigates the current web page to Google and returns to Synq. Other
- * web providers retain the popup flow, which is needed by their existing
- * BroadcastChannel completion handling.
+ * YouTube and Instagram navigate the current web page to the provider and
+ * return to Synq. This avoids popup blockers. X and LinkedIn retain their
+ * existing popup flow and BroadcastChannel completion handling.
  */
 export async function connectPlatform(platform: SocialPlatform): Promise<void> {
   const returnUrl = Platform.OS === 'web' ? window.location.origin : Linking.createURL('oauth-complete');
-  const fullPage = Platform.OS === 'web' && platform === 'youtube';
+  const fullPage = Platform.OS === 'web' && (platform === 'youtube' || platform === 'instagram');
   const popup = Platform.OS === 'web' && !fullPage ? window.open('', 'synq-oauth', 'width=520,height=720') : null;
   if (Platform.OS === 'web' && !fullPage && !popup) {
     throw new SocialError('Your browser blocked the login window. Allow popups for Synq and try again.');

@@ -9,7 +9,7 @@ import { OAUTH_CHANNEL, type OAuthMessage } from '@/lib/social';
 
 // Where social-auth sends the browser after the provider callback. It never
 // sees a token, only which platform and whether it worked. Popup flows notify
-// their opener; YouTube's full-page web flow returns to Integrations.
+// their opener; YouTube and Instagram full-page web flows return to the plugin.
 //
 // It sits outside the (app) group so the session guard cannot bounce it to the
 // login screen mid-handshake.
@@ -20,13 +20,15 @@ export default function OAuthCompleteScreen() {
   const platform = params.platform ? String(params.platform) : '';
   const connected = params.status === 'connected';
   const message = params.message ? String(params.message) : '';
-  const isYouTubeFullPage = Platform.OS === 'web' && typeof window !== 'undefined' && platform === 'youtube' && !window.opener;
+  const isFullPagePlugin = Platform.OS === 'web' && typeof window !== 'undefined'
+    && (platform === 'youtube' || platform === 'instagram') && !window.opener;
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !platform) return;
 
-    if (isYouTubeFullPage) {
-      const timer = setTimeout(() => router.replace('/plugins'), 1800);
+    if (isFullPagePlugin) {
+      const pluginPath = platform === 'instagram' ? '/plugins/instagram' : '/plugins';
+      const timer = setTimeout(() => router.replace(pluginPath as Parameters<typeof router.replace>[0]), 1800);
       return () => clearTimeout(timer);
     }
 
@@ -43,23 +45,27 @@ export default function OAuthCompleteScreen() {
     // one was reached some other way, the text below says what to do instead.
     const timer = setTimeout(() => window.close(), 600);
     return () => clearTimeout(timer);
-  }, [connected, isYouTubeFullPage, message, platform]);
+  }, [connected, isFullPagePlugin, message, platform]);
 
   return (
     <View style={[styles.page, { backgroundColor: theme.background }]}>
       <ThemedText type="sectionTitle">{connected ? 'Connected' : 'Not connected'}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.text}>
-        {isYouTubeFullPage
+        {isFullPagePlugin
           ? connected
-            ? 'Your YouTube account is connected. Returning to Integrations…'
-            : message || 'YouTube could not be connected. Returning to Integrations…'
+            ? platform === 'instagram'
+              ? 'Your Instagram account is connected. Returning to its plugin page…'
+              : 'Your YouTube account is connected. Returning to Integrations…'
+            : message || (platform === 'instagram'
+              ? 'Instagram could not be connected. Returning to its plugin page…'
+              : 'YouTube could not be connected. Returning to Integrations…')
           : connected
             ? 'You can close this window and go back to Synq.'
             : message || 'Something went wrong. Close this window and try again.'}
       </ThemedText>
-      {isYouTubeFullPage ? (
-        <Pressable accessibilityRole="button" onPress={() => router.replace('/plugins')}>
-          <ThemedText type="smallBold">Back to Integrations</ThemedText>
+      {isFullPagePlugin ? (
+        <Pressable accessibilityRole="button" onPress={() => router.replace((platform === 'instagram' ? '/plugins/instagram' : '/plugins') as Parameters<typeof router.replace>[0])}>
+          <ThemedText type="smallBold">{platform === 'instagram' ? 'Back to Instagram plugin' : 'Back to Integrations'}</ThemedText>
         </Pressable>
       ) : null}
     </View>

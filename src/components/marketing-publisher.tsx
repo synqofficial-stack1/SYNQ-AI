@@ -10,11 +10,12 @@ import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { checkPost, connectPlatform, loadConnections, SOCIAL_LABELS, SOCIAL_PLATFORMS, startPost, type Connection, type SocialPlatform, type SocialPost } from '@/lib/social';
-import { createMedia, draftPreviewUrl, listDraftPosts, listDrafts, saveDraft, uploadVideoFile, VIDEO_MIME, type MarketingDraft, type MarketingMedia } from '@/lib/marketing-publishing';
+import { createMedia, draftPreviewUrl, listDraftPosts, listDrafts, listUploadedMedia, saveDraft, uploadVideoFile, VIDEO_MIME, type MarketingDraftWithMedia, type MarketingMedia } from '@/lib/marketing-publishing';
 import { supabase } from '@/lib/supabase';
 import { composeMarketingCaption, MARKETING_CAPTION_LIMITS, validateMarketingDuration, validateMarketingVideo } from '@/lib/marketing-validation';
+import { sendChatMessage } from '@/lib/chat';
 
-type DraftWithMedia = MarketingDraft & { marketing_media: MarketingMedia };
+type DraftWithMedia = MarketingDraftWithMedia;
 const GLYPH: Record<SocialPlatform, string> = { youtube: '▶', instagram: 'IG', x: '𝕏', linkedin: 'in' };
 const fileSize = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
@@ -46,6 +47,7 @@ function readBrowserVideoDuration(source: File | string): Promise<number> {
 export function MarketingPublisher() {
   const theme = useTheme();
   const [drafts, setDrafts] = useState<DraftWithMedia[]>([]);
+  const [uploadedMedia, setUploadedMedia] = useState<MarketingMedia[]>([]);
   const [draft, setDraft] = useState<DraftWithMedia | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [posts, setPosts] = useState<SocialPost[]>([]);
@@ -53,6 +55,8 @@ export function MarketingPublisher() {
   const player = useVideoPlayer(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [generatedDescription, setGeneratedDescription] = useState('');
+  const [generatingDescription, setGeneratingDescription] = useState(false);
   const [caption, setCaption] = useState('');
   const [hashtags, setHashtags] = useState('');
   const [youtubeVisibility, setYoutubeVisibility] = useState<'public' | 'unlisted' | 'private'>('public');
@@ -70,8 +74,9 @@ export function MarketingPublisher() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [saved, linked] = await Promise.all([listDrafts(), loadConnections()]);
+    const [saved, uploads, linked] = await Promise.all([listDrafts(), listUploadedMedia(), loadConnections()]);
     setDrafts(saved as DraftWithMedia[]);
+    setUploadedMedia(uploads);
     setConnections(linked);
   }, []);
   useEffect(() => {
@@ -108,6 +113,7 @@ export function MarketingPublisher() {
     return () => { current = false; };
   }, [persistDuration, previewUri]);
   const inFlightPosts = posts.filter((post) => post.status !== 'posted' && post.status !== 'failed').map((post) => post.id).join(',');
+  const remainingPlatforms = platforms.filter((platform) => !posts.some((post) => post.platform === platform && post.status === 'posted'));
   useEffect(() => {
     if (!inFlightPosts) return;
     const timer = setInterval(() => {
@@ -190,10 +196,18 @@ export function MarketingPublisher() {
     setDraft(item); setMedia(item.marketing_media); setFilename(item.marketing_media.filename); setSize(item.marketing_media.size_bytes);
     setTitle(item.title); setDescription(item.description); setCaption(item.caption); setHashtags(item.hashtags);
     setYoutubeVisibility(item.youtube_visibility ?? 'public');
-    setPlatforms(item.platforms); setPlatformContent(item.platform_content ?? {}); setError(null); setNotice(null);
+    setPlatforms(item.platforms.filter((platform) => SOCIAL_PLATFORMS.includes(platform))); setPlatformContent(item.platform_content ?? {}); setError(null); setNotice(null);
     setPreviewUri(null); setPosts([]);
     void draftPreviewUrl(item.marketing_media.storage_path).then(setPreviewUri).catch((e) => setError(e.message));
     void listDraftPosts(item.id).then(setPosts).catch((e) => setError(e.message));
+  }
+
+  async function resumeUpload(item: MarketingMedia) {
+    setError(null); setNotice(null); setDraft(null); setMedia(item); setFilename(item.filename);
+    setSize(item.size_bytes); setDuration(item.duration_seconds); setTitle(item.filename.replace(/\.mp4$/i, ''));
+    setDescription(''); setCaption(''); setHashtags(''); setPlatforms([]); setPosts([]);
+    try { setPreviewUri(await draftPreviewUrl(item.storage_path)); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load this uploaded video.'); }
   }
 
   function togglePlatform(platform: SocialPlatform) {
@@ -229,10 +243,14 @@ export function MarketingPublisher() {
   async function publishNow() {
     if (!draft || draft.status !== 'ready_for_review' || !media) { setError('Save the draft for review before publishing.'); return; }
     if (!platforms.length) { setError('Select a destination first.'); return; }
+    if (!remainingPlatforms.length) {
+      setNotice('This draft has already been published to every selected destination. Choose New post to publish another video.');
+      return;
+    }
     const durationError = platforms.map((p) => validateMarketingDuration(p, duration ?? media.duration_seconds)).find(Boolean);
     if (durationError) { setError(durationError); return; }
     setPublishing(true); setError(null); setNotice('Publishing separately to each selected connected account…');
-    const results = await Promise.all(platforms.map(async (platform) => {
+    const results = await Promise.all(remainingPlatforms.map(async (platform) => {
       try {
         const text = composeMarketingCaption(platformContent[platform] ?? caption, hashtags);
         const { post } = await startPost({ mediaId: media.id, draftId: draft.id, title, description, youtubeVisibility, platform, caption: text });
@@ -258,6 +276,32 @@ export function MarketingPublisher() {
     finally { setPublishing(false); }
   }
 
+  async function generateYoutubeDescription() {
+    if (!title.trim() && !caption.trim() && !description.trim()) {
+      setError('Add a title or video context before generating a YouTube description.');
+      return;
+    }
+    setGeneratingDescription(true); setError(null); setGeneratedDescription('');
+    try {
+      const context = [
+        `Video title: ${title.trim() || '(not supplied)'}`,
+        `Existing description draft: ${description.trim() || '(not supplied)'}`,
+        `Supplied video context: ${caption.trim() || '(not supplied)'}`,
+        `User hashtags: ${hashtags.trim() || '(none supplied)'}`,
+      ].join('\n');
+      const result = await sendChatMessage({
+        kind: 'content',
+        context: { task: 'youtube_description' },
+        message: `Write a readable YouTube video description from only the supplied facts. Do not invent video details, factual claims, links, or timestamps. Include a concise opening hook and useful context. Add a call to action only if one is supported by the supplied content. Reuse supplied hashtags only when relevant. Return only the suggested description, without commentary.\n\n${context}`,
+      });
+      setGeneratedDescription(result.reply.trim());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not generate a YouTube description.');
+    } finally {
+      setGeneratingDescription(false);
+    }
+  }
+
   return (
     <View style={[styles.panel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <View style={styles.header}>
@@ -272,6 +316,7 @@ export function MarketingPublisher() {
         <Pressable accessibilityRole="button" onPress={() => void chooseVideo()} disabled={busy} style={[styles.drop, { borderColor: theme.borderStrong }]}>
           {busy ? <ActivityIndicator color={AccentColors.primary} /> : <ThemedText type="smallBold" style={{ color: AccentColors.primary }}>＋ Choose a video (MP4, up to 100 MB)</ThemedText>}
           <ThemedText type="caption" themeColor="textSecondary">{progress !== null ? `Uploading ${progress}%` : 'Pick from this device. The file is stored privately in your account.'}</ThemedText>
+          <ThemedText type="caption" themeColor="textSecondary">Large video uploads can take 5–10 minutes, depending on file size and internet speed. This is an estimate, not a guarantee. Keep this page open until the upload finishes; an interrupted upload must be restarted.</ThemedText>
         </Pressable>
       ) : (
         <View style={styles.stack}>
@@ -283,9 +328,26 @@ export function MarketingPublisher() {
             </View>
           </View>
           {previewUri ? <VideoView player={player} nativeControls contentFit="contain" style={styles.preview} /> : <ActivityIndicator color={AccentColors.primary} />}
-          {progress !== null ? <ThemedText type="caption" themeColor="textSecondary">Uploading {progress}%…</ThemedText> : null}
+          {progress !== null ? <ThemedText type="caption" themeColor="textSecondary">Uploading {progress}%… Large video uploads can take 5–10 minutes, depending on file size and internet speed. This is an estimate, not a guarantee. Keep this page open; an interrupted upload must be restarted.</ThemedText> : null}
           <TextField value={title} onChangeText={setTitle} placeholder="Post title (YouTube title)" maxLength={100} />
-          <TextField value={description} onChangeText={setDescription} placeholder="Description (optional)" multiline maxLength={5000} style={styles.multiline} />
+          {platforms.includes('youtube') ? <View style={styles.stack}>
+            <View style={styles.header}>
+              <ThemedText type="smallBold">YouTube description</ThemedText>
+              <Pressable accessibilityRole="button" disabled={generatingDescription} onPress={() => void generateYoutubeDescription()}>
+                <ThemedText type="caption" style={{ color: AccentColors.primary }}>{generatingDescription ? 'Generating…' : generatedDescription ? 'Regenerate with AI' : 'Generate with AI'}</ThemedText>
+              </Pressable>
+            </View>
+            <TextField accessibilityLabel="YouTube description" value={description} onChangeText={setDescription} placeholder="Description (optional)" multiline maxLength={5000} style={styles.multiline} />
+            {generatedDescription ? <View style={[styles.review, { borderColor: theme.border }]}>
+              <ThemedText type="caption">AI suggestion · review before using</ThemedText>
+              <ThemedText type="caption" themeColor="textSecondary">{generatedDescription}</ThemedText>
+              <View style={styles.platforms}>
+                <Pressable accessibilityRole="button" onPress={() => { setDescription(generatedDescription); setGeneratedDescription(''); }}><ThemedText type="caption" style={{ color: AccentColors.primary }}>Use suggestion</ThemedText></Pressable>
+                <Pressable accessibilityRole="button" onPress={() => setGeneratedDescription('')}><ThemedText type="caption" themeColor="textSecondary">Discard</ThemedText></Pressable>
+              </View>
+            </View> : null}
+          </View> : null}
+          {!platforms.includes('youtube') ? <TextField value={description} onChangeText={setDescription} placeholder="Description (optional)" multiline maxLength={5000} style={styles.multiline} /> : null}
           <TextField value={caption} onChangeText={(text) => { setCaption(text); setPlatformContent((old) => Object.fromEntries(Object.entries(old).map(([key, value]) => [key, value === caption ? text : value]))); }} placeholder="Shared caption" multiline style={styles.multiline} />
           <TextField value={hashtags} onChangeText={setHashtags} placeholder="Hashtags (optional)" />
           {platforms.includes('youtube') ? <View style={styles.stack}>
@@ -317,7 +379,7 @@ export function MarketingPublisher() {
           {draft?.status === 'ready_for_review' ? <View style={[styles.review, { borderColor: AccentColors.primary }]}>
             <ThemedText type="smallBold">Review before publishing</ThemedText>
             <ThemedText type="caption" themeColor="textSecondary">{title || filename} · {platforms.map((p) => `${SOCIAL_LABELS[p]} (${connections.find((c) => c.platform === p)?.account_name ?? 'account'}${p === 'youtube' ? ` · ${youtubeVisibility}` : ''})`).join(', ')}. Each destination is submitted only after you press Publish.</ThemedText>
-            <PrimaryButton title={publishing ? 'Publishing…' : `Publish to ${platforms.length} destination${platforms.length === 1 ? '' : 's'}`} onPress={() => void publishNow()} loading={publishing} disabled={publishing} />
+            <PrimaryButton title={publishing ? 'Publishing…' : remainingPlatforms.length ? `Publish to ${remainingPlatforms.length} remaining destination${remainingPlatforms.length === 1 ? '' : 's'}` : 'Already published'} onPress={() => void publishNow()} loading={publishing} disabled={publishing || remainingPlatforms.length === 0} />
             {platforms.map((p) => <ThemedText key={`review-${p}`} type="caption" themeColor="textSecondary">{SOCIAL_LABELS[p]} preview: {title ? `${title} · ` : ''}{composeMarketingCaption(platformContent[p] ?? caption, hashtags) || '(No caption)'}</ThemedText>)}
           </View> : null}
           {posts.map((p) => <View key={p.id} style={styles.resultRow}>
@@ -330,9 +392,23 @@ export function MarketingPublisher() {
       {notice ? <ThemedText type="caption" themeColor="textSecondary">{notice}</ThemedText> : null}
       {drafts.length ? <View style={styles.stack}>
         <ThemedText type="smallBold">Saved drafts and publishing</ThemedText>
-        {drafts.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => editDraft(item)} style={[styles.savedDraft, { borderColor: theme.border }]}>
+        {drafts.map((item) => {
+          const published = item.social_posts.filter((post) => post.status === 'posted');
+          const allPublished = item.platforms.length > 0 && item.platforms.every((platform) => published.some((post) => post.platform === platform));
+          const publishedLabel = published.length ? `Published to ${published.map((post) => SOCIAL_LABELS[post.platform]).join(', ')}` : null;
+          return <Pressable key={item.id} accessibilityRole="button" onPress={() => editDraft(item)} style={[styles.savedDraft, { borderColor: theme.border }]}>
           <ThemedText type="smallBold">{item.title || item.marketing_media?.filename || 'Untitled reel'}</ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">{item.status === 'ready_for_review' ? 'Ready for review' : 'Draft'} · {item.platforms.map((p) => SOCIAL_LABELS[p]).join(', ') || 'No destinations yet'}</ThemedText>
+          <ThemedText type="caption" themeColor="textSecondary">{allPublished ? 'Published' : publishedLabel ?? (item.status === 'ready_for_review' ? 'Ready for review' : 'Draft')} · {item.platforms.map((p) => SOCIAL_LABELS[p]).join(', ') || 'No destinations yet'}</ThemedText>
+          {published.map((post) => post.post_url ? <ThemedText key={post.id} type="caption" style={{ color: AccentColors.primary }}>{post.post_url}</ThemedText> : null)}
+        </Pressable>;
+        })}
+      </View> : null}
+      {uploadedMedia.filter((item) => !drafts.some((saved) => saved.media_id === item.id)).length ? <View style={styles.stack}>
+        <ThemedText type="smallBold">Uploaded videos</ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">Uploads are saved privately and remain available after refresh. Select one to continue its draft.</ThemedText>
+        {uploadedMedia.filter((item) => !drafts.some((saved) => saved.media_id === item.id)).map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => void resumeUpload(item)} style={[styles.savedDraft, { borderColor: theme.border }]}>
+          <ThemedText type="smallBold">{item.filename}</ThemedText>
+          <ThemedText type="caption" themeColor="textSecondary">{fileSize(item.size_bytes)} · Uploaded {new Date(item.created_at).toLocaleString()}</ThemedText>
         </Pressable>)}
       </View> : null}
     </View>

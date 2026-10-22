@@ -14,41 +14,45 @@ import type { Task } from '@/types/database';
 export default function HistoryDetailScreen() {
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [task, setTask] = useState<Task | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<{
+    id: string;
+    task: Task | null;
+    error: string | null;
+  } | null>(null);
+  const task = loaded?.id === id ? loaded.task : null;
+  const loading = Boolean(id) && loaded?.id !== id;
+  const error = id
+    ? loaded?.id === id ? loaded.error : null
+    : 'No task ID provided';
 
   useEffect(() => {
-    if (!id) {
-      setError('No task ID provided');
-      setLoading(false);
-      return;
-    }
-    loadTask();
+    if (!id) return;
+    let active = true;
+    void (async () => {
+      try {
+        const { data, error: queryError } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+        if (queryError) throw new Error(queryError.message);
+        if (!data) throw new Error('Task not found');
+        return { task: data as Task, error: null };
+      } catch (e) {
+        return {
+          task: null,
+          error: e instanceof Error
+            ? e.message
+            : 'Could not load task. Check your connection.',
+        };
+      }
+    })().then((result) => {
+      if (active) setLoaded({ id, ...result });
+    });
+    return () => {
+      active = false;
+    };
   }, [id]);
-
-  async function loadTask() {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: queryError } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (queryError) throw new Error(queryError.message);
-      if (!data) throw new Error('Task not found');
-
-      setTask(data as Task);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : 'Could not load task. Check your connection.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const formatDate = (isoDate: string) => {
     const date = new Date(isoDate);
