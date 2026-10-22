@@ -244,17 +244,22 @@ export function Sparkline({ values, color, width = 96, height = 36 }: { values: 
     d += ` C ${mid} ${from.y} ${mid} ${to.y} ${to.x} ${to.y}`;
   }
   const area = `${d} L ${width} ${height} L 0 ${height} Z`;
+  // The trend is decorative (the card states the number), so it is hidden from
+  // screen readers. The props go on a View: react-native-svg hands unknown
+  // props straight to the DOM on web, where React rejects them.
   return (
-    <Svg width={width} height={height} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Defs>
-        <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={color} stopOpacity={0.28} />
-          <Stop offset="1" stopColor={color} stopOpacity={0} />
-        </LinearGradient>
-      </Defs>
-      <Path d={area} fill={`url(#${id})`} />
-      <Path d={d} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Svg width={width} height={height}>
+        <Defs>
+          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color} stopOpacity={0.28} />
+            <Stop offset="1" stopColor={color} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Path d={area} fill={`url(#${id})`} />
+        <Path d={d} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    </View>
   );
 }
 
