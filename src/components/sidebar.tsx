@@ -282,9 +282,10 @@ export function Sidebar({
     >
       <View style={[styles.brandRow, collapsed && styles.brandRowCollapsed]}>
         <Pressable accessibilityRole="link" accessibilityLabel="Synq dashboard" onPress={() => go('/')} style={styles.brand}>
-          {collapsed ? (
-            <Image source={MARK} style={styles.logo} contentFit="contain" accessibilityLabel="" />
-          ) : (
+          {/* The building mark is cut out onto transparency, so its windows show
+              the sidebar through them and it sits on the dark rail with no box. */}
+          <Image source={MARK} style={collapsed ? styles.logo : styles.logoBeside} contentFit="contain" accessibilityLabel="" />
+          {collapsed ? null : (
             <View style={styles.wordmarkRow}>
               <Text style={styles.wordmark}>Synq</Text>
               <View style={styles.sparkle}>
@@ -438,6 +439,8 @@ const styles = StyleSheet.create({
   brandRowCollapsed: { flexDirection: 'column', gap: 12, paddingLeft: 0 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   logo: { height: 30, width: 30 * MARK_ASPECT },
+  // Sized to the wordmark's cap height plus its descender, so the two read as one lockup.
+  logoBeside: { height: 34, width: 34 * MARK_ASPECT },
   wordmarkRow: { flexDirection: 'row', alignItems: 'flex-start' },
   wordmark: { color: SidebarColors.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.8 },
   sparkle: { marginLeft: 1, marginTop: -4 },
