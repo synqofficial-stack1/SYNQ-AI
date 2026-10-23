@@ -7,10 +7,10 @@ import { supabase } from '@/lib/supabase';
 
 // Connecting and posting to Instagram and X, from the client's side.
 //
-// The client never holds a token. It asks social-auth what is connected, opens
-// the platform's login in a popup, and waits to hear back from the app's own
-// /oauth-complete page. Posting goes through social-post, which uploads and
-// publishes on the server.
+// The client never holds a token. It asks social-auth what is connected, then
+// sends the user through the platform's authorization flow. YouTube uses a
+// full-page redirect on web; other web providers use the existing popup flow.
+// Posting goes through social-post, which uploads and publishes on the server.
 //
 // Completion is reported over a BroadcastChannel rather than window.opener. The
 // Instagram and X login pages isolate themselves from the window that opened
@@ -19,7 +19,9 @@ import { supabase } from '@/lib/supabase';
 
 export type SocialPlatform = 'youtube' | 'instagram' | 'x' | 'linkedin';
 
-export const SOCIAL_PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'x', 'linkedin'];
+// LinkedIn stays in the underlying types so existing connection records remain
+// readable, but it is no longer offered for new connections or publishing.
+export const SOCIAL_PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'x'];
 
 export const SOCIAL_LABELS: Record<SocialPlatform, string> = {
   youtube: 'YouTube',
@@ -40,6 +42,8 @@ export type Connection = {
   /** False until the platform's app keys are in the Supabase secrets. */
   configured: boolean;
   connected: boolean;
+  /** Whether Synq may use this authorized account as a publishing destination. */
+  publishing_enabled: boolean;
   needs_reconnect?: boolean;
   verification_error?: string | null;
   configuration_missing?: string[];
@@ -52,7 +56,12 @@ export type PostStatus = 'pending' | 'processing' | 'publishing' | 'posted' | 'f
 export type SocialPost = {
   id: string;
   user_id: string;
-  video_id: string;
+  video_id: string | null;
+  media_id?: string | null;
+  draft_id?: string | null;
+  title?: string;
+  description?: string;
+  youtube_visibility?: 'public' | 'unlisted' | 'private';
   platform: SocialPlatform;
   caption: string;
   status: PostStatus;
@@ -115,17 +124,22 @@ export async function disconnectPlatform(platform: SocialPlatform): Promise<void
   await invoke('social-auth', { action: 'disconnect', platform });
 }
 
+export async function setPublishingEnabled(platform: SocialPlatform, enabled: boolean): Promise<void> {
+  await invoke('social-auth', { action: 'set_publishing_enabled', platform, enabled });
+}
+
 /**
- * Opens the platform's login in a popup and resolves once it is connected.
+ * Starts the platform's login and resolves once it is connected.
  *
- * Call it straight from a press handler. The popup is opened before the login
- * URL is fetched, because browsers only allow popups during the click itself
- * and would block one opened after an await.
+ * YouTube and Instagram navigate the current web page to the provider and
+ * return to Synq. This avoids popup blockers. X and LinkedIn retain their
+ * existing popup flow and BroadcastChannel completion handling.
  */
 export async function connectPlatform(platform: SocialPlatform): Promise<void> {
   const returnUrl = Platform.OS === 'web' ? window.location.origin : Linking.createURL('oauth-complete');
-  const popup = Platform.OS === 'web' ? window.open('', 'synq-oauth', 'width=520,height=720') : null;
-  if (Platform.OS === 'web' && !popup) {
+  const fullPage = Platform.OS === 'web' && (platform === 'youtube' || platform === 'instagram');
+  const popup = Platform.OS === 'web' && !fullPage ? window.open('', 'synq-oauth', 'width=520,height=720') : null;
+  if (Platform.OS === 'web' && !fullPage && !popup) {
     throw new SocialError('Your browser blocked the login window. Allow popups for Synq and try again.');
   }
 
@@ -139,6 +153,11 @@ export async function connectPlatform(platform: SocialPlatform): Promise<void> {
   } catch (e) {
     popup?.close();
     throw e;
+  }
+
+  if (fullPage) {
+    window.location.assign(url);
+    return;
   }
 
   if (Platform.OS !== 'web') {
@@ -196,13 +215,23 @@ export async function connectPlatform(platform: SocialPlatform): Promise<void> {
 }
 
 export function startPost(input: {
-  videoId: string;
+  videoId?: string;
+  mediaId?: string;
+  draftId?: string;
+  title?: string;
+  description?: string;
+  youtubeVisibility?: 'public' | 'unlisted' | 'private';
   platform: SocialPlatform;
   caption: string;
 }): Promise<{ post: SocialPost }> {
   return invoke<{ post: SocialPost }>('social-post', {
     action: 'start',
-    video_id: input.videoId,
+    ...(input.videoId ? { video_id: input.videoId } : {}),
+    ...(input.mediaId ? { media_id: input.mediaId } : {}),
+    ...(input.draftId ? { draft_id: input.draftId } : {}),
+    title: input.title ?? '',
+    description: input.description ?? '',
+    youtube_visibility: input.youtubeVisibility ?? 'public',
     platform: input.platform,
     caption: input.caption,
   }).then((result) => {

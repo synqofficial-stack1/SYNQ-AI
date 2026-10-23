@@ -1,49 +1,27 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
-
-import { AccentColors, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Button, type ButtonVariant } from '@/components/ui/button';
 
 type Props = {
   title: string;
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
+  /** Defaults to the yellow primary. Pass `secondary` for a supporting action. */
+  variant?: ButtonVariant;
+  /** Older screens expect a full-width button; new code can opt out. */
+  fullWidth?: boolean;
 };
 
-export function PrimaryButton({ title, onPress, loading, disabled }: Props) {
-  const theme = useTheme();
-  const isDisabled = disabled || loading;
-
+/** The original full-width call to action, now drawn by the shared Button. */
+export function PrimaryButton({ title, onPress, loading, disabled, variant = 'primary', fullWidth = true }: Props) {
   return (
-    <Pressable
+    <Button
+      label={title}
       onPress={onPress}
-      disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: AccentColors.primary,
-          opacity: isDisabled ? 0.5 : pressed ? 0.8 : 1
-        },
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color={theme.background} />
-      ) : (
-        <Text style={[styles.label, { color: theme.background }]}>{title}</Text>
-      )}
-    </Pressable>
+      loading={loading}
+      disabled={disabled}
+      variant={variant}
+      size="lg"
+      fullWidth={fullWidth}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    borderRadius: 12,
-    paddingVertical: Spacing.three,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});

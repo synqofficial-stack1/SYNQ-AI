@@ -1,4 +1,4 @@
-import { createElement, useRef, useState } from 'react';
+import { createElement, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
@@ -29,7 +29,6 @@ export function FileDrop({
   disabled?: boolean;
 }) {
   const theme = useTheme();
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -110,7 +109,11 @@ export function FileDrop({
         transition: 'background-color 140ms, border-color 140ms',
         textAlign: 'center',
       },
-      onClick: () => !inert && inputRef.current?.click(),
+      onClick: (event: React.MouseEvent<HTMLDivElement>) => {
+        if (!inert) {
+          (event.currentTarget.querySelector('input[type="file"]') as HTMLInputElement | null)?.click();
+        }
+      },
       onDragOver: (event: React.DragEvent) => {
         event.preventDefault();
         if (!inert) setDragging(true);
@@ -123,10 +126,10 @@ export function FileDrop({
       },
     },
     createElement('input', {
-      ref: inputRef,
       type: 'file',
       accept: '.csv,.tsv,.txt,.xlsx,.xlsm,.xlsb,.xls,.ods,.fods',
       style: { display: 'none' },
+      onClick: (event: React.MouseEvent<HTMLInputElement>) => event.stopPropagation(),
       onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
         read(event.target.files?.[0]);
         // Cleared so picking the same file twice still fires onChange.

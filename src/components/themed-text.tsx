@@ -15,6 +15,8 @@ export type ThemedTextProps = TextProps & {
     | 'code'
     | 'pageTitle'
     | 'sectionTitle'
+    | 'cardTitle'
+    | 'label'
     | 'caption'
     | 'metric';
   themeColor?: ThemeColor;
@@ -33,10 +35,12 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
         type === 'smallBold' && styles.smallBold,
         type === 'subtitle' && styles.subtitle,
         type === 'link' && styles.link,
-        type === 'linkPrimary' && styles.linkPrimary,
+        type === 'linkPrimary' && [styles.linkPrimary, { color: theme.accentText }],
         type === 'code' && styles.code,
         type === 'pageTitle' && styles.pageTitle,
         type === 'sectionTitle' && styles.sectionTitle,
+        type === 'cardTitle' && styles.cardTitle,
+        type === 'label' && styles.label,
         type === 'caption' && styles.caption,
         type === 'metric' && styles.metric,
         style,
@@ -46,69 +50,84 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
   );
 }
 
+// The working scale: page titles ~30, section headings 18, card headings 16,
+// body 14–15, labels 13, captions 12, metric values 30. Weights stay at
+// 400/500/600/700 so headings separate from body without shouting.
 const styles = StyleSheet.create({
   small: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: 500,
+    fontWeight: 400,
   },
   smallBold: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: 700,
+    fontWeight: 600,
   },
   default: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: 500,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: 400,
   },
+  // `title`/`subtitle` are display sizes kept from the original template.
   title: {
-    fontSize: 48,
-    fontWeight: 600,
-    lineHeight: 52,
+    fontSize: 40,
+    fontWeight: 700,
+    lineHeight: 46,
+    letterSpacing: -0.8,
   },
   subtitle: {
-    fontSize: 32,
-    lineHeight: 44,
+    fontSize: 26,
+    lineHeight: 34,
     fontWeight: 600,
   },
   link: {
-    lineHeight: 30,
+    lineHeight: 20,
     fontSize: 14,
   },
   linkPrimary: {
-    lineHeight: 30,
+    lineHeight: 20,
     fontSize: 14,
-    color: '#3c87f7',
+    fontWeight: 600,
   },
   code: {
     fontFamily: Fonts.mono,
     fontWeight: Platform.select({ android: 700 }) ?? 500,
     fontSize: 12,
   },
-  // `title`/`subtitle` above are display sizes from the original template. These
-  // four are the working scale for the workspace: dense enough to scan.
   pageTitle: {
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: 600,
-    letterSpacing: -0.4,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: 700,
+    letterSpacing: -0.6,
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 18,
     lineHeight: 24,
-    fontWeight: 600,
+    fontWeight: 700,
     letterSpacing: -0.2,
+  },
+  cardTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: 600,
+    letterSpacing: -0.1,
+  },
+  label: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: 500,
   },
   caption: {
     fontSize: 12,
-    lineHeight: 16,
-    fontWeight: 500,
+    lineHeight: 17,
+    fontWeight: 400,
   },
   metric: {
     fontSize: 30,
-    lineHeight: 34,
-    fontWeight: 600,
+    lineHeight: 36,
+    fontWeight: 700,
     letterSpacing: -0.6,
+    fontVariant: ['tabular-nums'],
   },
 });

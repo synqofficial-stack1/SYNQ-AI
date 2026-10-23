@@ -4,20 +4,31 @@
     "slug": "synq-ai",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/synq-app-icon.png",
     "scheme": "synqai",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.synq.ai",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "usesAppleSignIn": true,
+      "icon": "./assets/images/synq-app-icon.png"
     },
     "android": {
+      "package": "com.synq.ai",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#09090B",
+        "foregroundImage": "./assets/images/android/synq-adaptive-foreground.png",
+        "monochromeImage": "./assets/images/android/synq-adaptive-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "output": "static",
@@ -29,12 +40,15 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#09090B",
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/synq-app-icon.png",
           "imageWidth": 76
         }
       ],
       "expo-video",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-apple-authentication",
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

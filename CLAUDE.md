@@ -170,12 +170,14 @@ assets/images/             icons, splash, synq-logo.jpg
   ElevenLabs, Twilio or Google Places directly.
 - **Storage** (live 2026-10-22): private buckets `generated-videos`, `ai-images`,
   `marketing-uploads` and `call-audio`.
-- **Deployed functions** (verified live 2026-10-22): `admin-console`, `call-audio`,
-  `call-number` (v18, older than the repo), `call-result` (verify_jwt off), `chat`,
-  `discover-prospects`, `email-outreach`, `email-worker` (verify_jwt off), `generate-image`,
-  `generate-video` (fal), `gmail-auth` (verify_jwt off), `place-calls`, `run-task`,
-  `social-auth` (verify_jwt off), `social-post`, `vapi-call-result` (verify_jwt off).
-  **In the repo but not deployed:** `call-report`.
+- **Deployed functions** (verified live 2026-10-23): `admin-console`, `call-audio`,
+  `call-number`, `call-result` (verify_jwt off), `chat`, `delete-account` (the only caller of
+  the service-only `delete_account` SQL function), `discover-prospects`, `email-outreach`,
+  `email-worker` (verify_jwt off), `generate-image`, `generate-video` (fal), `gmail-auth`
+  (verify_jwt off), `place-calls`, `request-ceo-alert` (Settings), `run-task`, `social-auth`
+  (verify_jwt off), `social-post`, `vapi-call-result` (verify_jwt off).
+  **In the repo but not deployed:** `call-report`. **Deployed but not in the repo:**
+  `upgrade-notify` (source unknown; recover it before changing it).
 - The Supabase **CLI is not logged in** in this environment; migrations and deploys are done with
   the Supabase MCP tools (`apply_migration`, `deploy_edge_function`, `execute_sql`). Project ref:
   `jjdrlgwpvxyxeruyygli` (the URL and publishable key live in `.env.local`, which is gitignored).
@@ -364,6 +366,8 @@ use the Supabase MCP tools instead.
 - Default branch on GitHub (`synqofficial-stack1/SYNQ-AI`): **`main`**. Work lands through
   feature branches and pull requests (e.g. `codex/email-outreach`, `codex/daily-ai-credits`).
   Prefer small, focused commits with short imperative subjects, e.g. "Marketing is one chat now".
+- The first store release targets **Android / Google Play** (see
+  `docs/play-store-release-readiness.md`).
 - More than one AI agent works on this repo. Follow `AGENTS.md`: inspect the tree first, never
   discard someone else's work, and never change production without committing the change.
 - Commit messages explain *why* in the body when the change is not obvious.
@@ -442,9 +446,9 @@ use the Supabase MCP tools instead.
 - `campaigns`, `content_items`, `company_facts` tables have no UI.
 - `/upgrade` is a price list with no payments. There is no billing, subscription or entitlement
   logic anywhere.
-- Lint reported ~14 pre-existing problems (mostly `react-hooks/set-state-in-effect`) on
-  2026-09-21, with a clean typecheck and web build. **Not re-run since** the large October
-  additions; run both before trusting that.
+- Release status for Google Play, including what only the owner can do, is tracked in
+  `docs/play-store-release-readiness.md`.
+- On 2026-10-23 typecheck and lint were both clean and every `test:*` suite passed.
 
 ## 21. Things Claude must not break
 

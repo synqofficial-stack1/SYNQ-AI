@@ -1,21 +1,27 @@
-import { useEffect, useState } from 'react';
-import { useColorScheme as useRNColorScheme } from 'react-native';
+import { useSyncExternalStore } from 'react';
+import { Appearance } from 'react-native';
 
-/**
- * To support static rendering, this value needs to be re-calculated on the client side for web
- */
-export function useColorScheme() {
-  const [hasHydrated, setHasHydrated] = useState(false);
+import { getAppearancePreference, subscribeAppearance } from '@/lib/appearance';
 
-  useEffect(() => {
-    setHasHydrated(true);
-  }, []);
+function subscribeSystem(callback: () => void) {
+  const subscription = Appearance.addChangeListener(callback);
+  return () => subscription.remove();
+}
 
-  const colorScheme = useRNColorScheme();
+function getSystem() {
+  return Appearance.getColorScheme();
+}
 
-  if (hasHydrated) {
-    return colorScheme;
-  }
+// The static web build renders on a server with no window and no saved choice,
+// so both snapshots fall back to the light default there.
+function getServerSnapshot() {
+  return 'light' as const;
+}
 
-  return 'light';
+/** The scheme to draw with: the saved preference, or the system's when it is "system". */
+export function useColorScheme(): 'light' | 'dark' {
+  const preference = useSyncExternalStore(subscribeAppearance, getAppearancePreference, getServerSnapshot);
+  const system = useSyncExternalStore(subscribeSystem, getSystem, getServerSnapshot);
+  if (preference !== 'system') return preference;
+  return system === 'dark' ? 'dark' : 'light';
 }

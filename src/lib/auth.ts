@@ -1,4 +1,6 @@
 import * as Linking from 'expo-linking';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
@@ -24,7 +26,7 @@ export function authErrorMessage(
   if (!message) return fallback;
 
   if (/provider is not enabled|Unsupported provider/i.test(message)) {
-    return 'Google sign-in is not switched on for this project yet.';
+    return 'This sign-in option is not enabled for this project yet.';
   }
   if (/Invalid login credentials/i.test(message)) {
     return 'That email and password do not match an account.';
@@ -45,6 +47,78 @@ export function authErrorMessage(
     return 'Could not reach the server. Check your connection and try again.';
   }
   return message;
+}
+
+/**
+ * Native Sign in with Apple. Apple receives the SHA-256 nonce; Supabase gets
+ * the raw nonce and verifies it against the signed identity token.
+ * Returns false when the person closes Apple's sheet without signing in.
+ */
+export async function signInWithApple(): Promise<boolean> {
+  if (Platform.OS !== 'ios') {
+    throw new Error('Sign in with Apple is available in the iOS app.');
+  }
+
+  const rawNonce = Crypto.randomUUID();
+  const hashedNonce = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    rawNonce,
+  );
+
+  let credential: AppleAuthentication.AppleAuthenticationCredential;
+  try {
+    credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+      ],
+      nonce: hashedNonce,
+    });
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ERR_REQUEST_CANCELED'
+    ) {
+      return false;
+    }
+    throw error;
+  }
+
+  if (!credential.identityToken) {
+    throw new Error('Apple did not return a sign-in token. Try again.');
+  }
+
+  const { error } = await supabase.auth.signInWithIdToken({
+    provider: 'apple',
+    token: credential.identityToken,
+    nonce: rawNonce,
+  });
+  if (error) throw new Error(authErrorMessage(error));
+
+  // Apple sends the name only on the first consent. Preserve it in Auth
+  // metadata so the existing profile trigger and workspace setup can use it.
+  const fullName = [
+    credential.fullName?.givenName,
+    credential.fullName?.middleName,
+    credential.fullName?.familyName,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  if (fullName) {
+    const { error: profileError } = await supabase.auth.updateUser({
+      data: { full_name: fullName },
+    });
+    if (profileError) {
+      throw new Error(
+        'Signed in with Apple, but your name did not save. Add it in workspace setup.',
+      );
+    }
+  }
+
+  return true;
 }
 
 /** Where Supabase should send the browser back to once it is done. */

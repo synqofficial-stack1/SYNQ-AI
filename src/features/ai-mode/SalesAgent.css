@@ -382,10 +382,10 @@
 }
 .sa-exit:hover { color: var(--sa-text); border-color: var(--sa-muted); }
 
-/* Synq dashboard theme: dark + gold (always dark, matches the dashboard) */
+/* Synq dark theme: near-black and the yellow accent, matching the dark app. */
 .sa-theme-synq {
   --sa-bg: #0e0e0e; --sa-surface: #171717; --sa-text: #f1efe9; --sa-muted: #9b978d; --sa-border: #2b2a27;
-  --sa-accent: #E8B931; --sa-accent-hover: #F5C451; --sa-on-accent: #1d1600; --sa-user-bubble: #242320;
+  --sa-accent: #FFD45A; --sa-accent-hover: #EAB938; --sa-on-accent: #171717; --sa-user-bubble: #242320;
   --sa-shadow: 0 2px 16px rgba(0,0,0,0.4); --sa-side: #111; --sa-hover: rgba(255,255,255,0.06);
   --sa-warn: #e0a54a; --sa-danger: #f07070;
 }
@@ -650,3 +650,29 @@
   color: var(--sa-muted);
 }
 .sa-app .sa-credit-info a { color: var(--sa-accent); }
+
+/* Synq light theme: warm ivory and the yellow accent, matching the light app.
+   Accent fills carry dark text; links and "on" states use the darker gold so
+   they stay readable on white. */
+.sa-theme-synq-light {
+  --sa-bg: #F8F6F1; --sa-surface: #FFFFFF; --sa-text: #171717; --sa-muted: #6B6862; --sa-border: #E8E4DC;
+  --sa-accent: #FFD45A; --sa-accent-hover: #EAB938; --sa-on-accent: #171717; --sa-user-bubble: #FFF5D6;
+  --sa-shadow: 0 2px 12px rgba(27, 26, 22, 0.06); --sa-side: #F2EFE8; --sa-hover: rgba(23, 23, 23, 0.05);
+  --sa-warn: #B45309; --sa-danger: #C62828;
+}
+/* Yellow is a fill colour; where the accent is used as *text* in the light
+   theme, the darker gold keeps it readable on white. */
+.sa-theme-synq-light .sa-image a,
+.sa-theme-synq-light .sa-link-btn,
+.sa-theme-synq-light .sa-pill.live,
+.sa-theme-synq-light .sa-pill.good,
+.sa-theme-synq-light .sa-ask-btn > svg:first-child,
+.sa-theme-synq-light .sa-cp-menu button.on,
+.sa-theme-synq-light .sa-cp-new:hover,
+.sa-theme-synq-light .sa-cp-pin.on,
+.sa-theme-synq-light .sa-hv-pinned,
+.sa-theme-synq-light .sa-hv-actions button.on,
+.sa-theme-synq-light .sa-hv-controls select.on,
+.sa-theme-synq-light .sa-addmore:hover,
+.sa-theme-synq-light .sa-credit-info a,
+.sa-theme-synq-light .sa-upgrade-link { color: #8A6400; }

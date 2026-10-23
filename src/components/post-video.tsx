@@ -187,7 +187,7 @@ export function PostVideo({ video }: { video: GeneratedVideo }) {
               Finish logging in in the window that opened.
             </ThemedText>
             <Pressable accessibilityRole="button" onPress={cancelConnect}>
-              <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+              <ThemedText type="caption" themeColor="accentText">
                 Cancel
               </ThemedText>
             </Pressable>
@@ -254,7 +254,7 @@ export function PostVideo({ video }: { video: GeneratedVideo }) {
             </ThemedText>
             {p.post_url ? (
               <Pressable accessibilityRole="link" onPress={() => Linking.openURL(p.post_url!)}>
-                <ThemedText type="caption" style={{ color: AccentColors.primary }}>
+                <ThemedText type="caption" themeColor="accentText">
                   View post
                 </ThemedText>
               </Pressable>

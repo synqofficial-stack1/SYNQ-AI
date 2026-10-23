@@ -1,9 +1,12 @@
 import { type ReactNode, useEffect } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { XIcon } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+
+import { floatingShadow } from './ui/utils';
 
 export function ModalSheet({
   visible,
@@ -12,6 +15,7 @@ export function ModalSheet({
   description,
   children,
   align = 'center',
+  width = 480,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -20,6 +24,7 @@ export function ModalSheet({
   children?: ReactNode;
   /** `top` suits the command palette, which should not jump to mid-screen. */
   align?: 'center' | 'top';
+  width?: number;
 }) {
   const theme = useTheme();
 
@@ -34,7 +39,7 @@ export function ModalSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[styles.backdrop, align === 'top' && styles.backdropTop]}>
+      <View style={[styles.backdrop, { backgroundColor: theme.overlay }, align === 'top' && styles.backdropTop]}>
         {/* The click-to-dismiss target is a sibling of the panel, not its
             parent. Wrapping the panel in a Pressable would put every button
             inside the modal inside a <button> on web, which is invalid markup
@@ -46,17 +51,37 @@ export function ModalSheet({
           style={StyleSheet.absoluteFill}
         />
         <View
-          style={[styles.panel, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          accessibilityViewIsModal
+          style={[
+            styles.panel,
+            floatingShadow(theme.shadow),
+            { maxWidth: width, backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
         >
           <View style={styles.header}>
-            <ThemedText type="sectionTitle">{title}</ThemedText>
-            {description ? (
-              <ThemedText type="caption" themeColor="textSecondary">
-                {description}
+            <View style={styles.headerText}>
+              <ThemedText type="sectionTitle" accessibilityRole="header">
+                {title}
               </ThemedText>
-            ) : null}
+              {description ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {description}
+                </ThemedText>
+              ) : null}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close dialog"
+              onPress={onClose}
+              hitSlop={8}
+              style={({ hovered }) => [styles.close, hovered && { backgroundColor: theme.surfaceRaised }]}
+            >
+              <XIcon size={17} color={theme.textSecondary} />
+            </Pressable>
           </View>
-          {children}
+          <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
+            {children}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -68,22 +93,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Spacing.four,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    padding: Spacing.three,
   },
-  backdropTop: { justifyContent: 'flex-start', paddingTop: 96 },
+  backdropTop: { justifyContent: 'flex-start', paddingTop: 88 },
   panel: {
     width: '100%',
-    maxWidth: 460,
+    maxHeight: '90%',
     gap: Spacing.three,
     padding: Spacing.four,
     borderRadius: Radius.modal,
     borderWidth: 1,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.35,
-    shadowRadius: 40,
-    elevation: 16,
   },
-  header: { gap: Spacing.one },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.three },
+  headerText: { flex: 1, gap: Spacing.one },
+  close: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginTop: -4, marginRight: -6 },
+  body: { flexGrow: 0, flexShrink: 1 },
+  bodyContent: { gap: Spacing.three },
 });
