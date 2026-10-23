@@ -261,7 +261,7 @@ export default function SettingsScreen() {
   async function chooseTheme(next: AppearancePreference) {
     if (next === appearance) return;
     const saved = await setAppearancePreference(next);
-    if (!saved) showToast('Theme changed for now, but this device could not remember it.', 'info');
+    if (!saved) showToast('Theme changed for now, but it could not be saved. Try again in a moment.', 'info');
   }
 
   function closePassword() {
@@ -437,7 +437,7 @@ export default function SettingsScreen() {
   const appearanceCard = (
     <View key="appearance" onLayout={(event) => onCardLayout('appearance', event)}>
       <Card>
-        <SectionHeader title="Appearance" subtitle="Choose how Synq looks for you. Saved on this device." />
+        <SectionHeader title="Appearance" subtitle="Choose how Synq looks for you. Saved to your account, so it stays after you sign in again." />
         <View style={styles.themes} accessibilityRole="radiogroup" accessibilityLabel="Theme">
           {THEMES.map((option) => {
             const selected = appearance === option.value;

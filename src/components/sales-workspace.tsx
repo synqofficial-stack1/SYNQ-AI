@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
 
 import { DepartmentActivityChart } from '@/components/department-activity-chart';
 import { EmailOutreach } from '@/components/email-outreach';
+import { SendEmailSheet } from '@/components/send-email';
 import {
   ArrowIcon,
   CalendarIcon,
@@ -12,7 +13,7 @@ import {
   FileTextIcon,
   HandshakeIcon,
   MailIcon,
-  PlusIcon,
+  SendIcon,
   SparkIcon,
   TargetIcon,
   TrendUpIcon,
@@ -44,14 +45,11 @@ import {
   SearchInput,
   SectionHeader,
   Split,
-  StatusBadge,
   Tabs,
-  alpha,
   showToast,
-  transition,
   useBreakpoint,
 } from '@/components/ui';
-import { DataColors, PageMaxWidth, Radius, Spacing } from '@/constants/theme';
+import { DataColors, PageMaxWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { listLeads } from '@/lib/leads';
@@ -62,7 +60,6 @@ import {
   STAGES,
   STAGE_LABELS,
   blankDeal,
-  dealsCsv,
   loadSales,
   loadTarget,
   localDate,
@@ -89,16 +86,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'targets', label: 'Targets' },
   { key: 'email', label: 'Email duties' },
 ];
-
-/** Stage colours for the pipeline columns; each column is also labelled. */
-const STAGE_TONE: Record<Deal['stage'], string> = {
-  new: DataColors.neutral,
-  contacted: DataColors.company,
-  interested: DataColors.marketing,
-  negotiating: DataColors.sales,
-  won: '#16A34A',
-  lost: '#DC2626',
-};
 
 function download(text: string, name: string, type = 'text/plain') {
   if (Platform.OS !== 'web') throw new Error('Downloads are available in the web app.');
@@ -130,7 +117,10 @@ export function SalesWorkspace() {
   const theme = useTheme();
   const { width, isCompact } = useBreakpoint();
   const { identity } = useWorkspace();
-  const params = useLocalSearchParams<{ compose?: string; view?: string }>();
+  const params = useLocalSearchParams<{ compose?: string; view?: string; send?: string }>();
+  // `?send=1` (the dashboard's Create → Email) opens Send email straight away.
+  const sendOpen = params.send === '1';
+  const setSendOpen = (open: boolean) => router.setParams({ send: open ? '1' : undefined });
   const emailVisible = params.compose === '1' || params.view === 'email';
   const current: Tab = emailVisible
     ? 'email'
@@ -145,9 +135,7 @@ export function SalesWorkspace() {
     [target, setTarget] = useState<SalesTarget | null>(null),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState('');
-  const [search, setSearch] = useState(''),
-    [archived, setArchived] = useState(false),
-    [activityFilter, setActivityFilter] = useState<'all' | 'meetings' | 'deals'>('all'),
+  const [activityFilter, setActivityFilter] = useState<'all' | 'meetings' | 'deals'>('all'),
     [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState(false),
     [editing, setEditing] = useState<Deal>(),
@@ -263,11 +251,6 @@ export function SalesWorkspace() {
   const stats = salesSummary(rows, today);
   // All-time, including archived deals: the share of recorded opportunities that closed as won.
   const wonEver = rows.filter((deal) => deal.stage === 'won').length;
-  const filtered = rows.filter(
-    (d) =>
-      d.archived === archived &&
-      (d.title + ' ' + d.contact_name + ' ' + d.company + ' ' + d.contact_email).toLowerCase().includes(search.toLowerCase()),
-  );
   const field = <K extends keyof DealInput>(key: K, value: DealInput[K]) => setDraft((d) => ({ ...d, [key]: value }));
   function open(deal?: Deal, part: Section = 'Deal', preset?: Partial<DealInput>) {
     const input = { ...(deal ? draftOf(deal) : blankDeal()), ...preset };
@@ -316,11 +299,6 @@ export function SalesWorkspace() {
     }
   }
 
-  const reasons = new Map<string, number>();
-  for (const deal of rows.filter((d) => d.stage === 'lost')) {
-    const reason = deal.lost_reason.trim().toLowerCase();
-    reasons.set(reason, (reasons.get(reason) || 0) + 1);
-  }
   const revenueGoal = target ? Number(target.revenue_goal) : 0;
   const dealsGoal = target ? Number(target.deals_goal) : 0;
   const nowIso = new Date().toISOString();
@@ -344,6 +322,12 @@ export function SalesWorkspace() {
       <PageHeader
         title="Sales"
         description="Turn conversations into opportunities — and opportunities into customers."
+        actions={
+          <>
+            <Button label="Send email" icon={SendIcon} onPress={() => setSendOpen(true)} />
+            <Button label="Ask Synq AI" variant="primary" icon={SparkIcon} onPress={() => router.setParams({ ai: '1', department: 'sales' })} />
+          </>
+        }
       />
       <Tabs label="Sales sections" items={TABS} value={current} onChange={selectTab} />
     </View>
@@ -384,114 +368,6 @@ export function SalesWorkspace() {
         </View>
       ))}
     </View>
-  );
-
-  const dealCard = (deal: Deal) => {
-    const overdue = deal.next_action_on && deal.next_action_on < today && !['won', 'lost'].includes(deal.stage);
-    return (
-      <Pressable
-        key={deal.id}
-        accessibilityRole="button"
-        accessibilityLabel={`Edit ${deal.title}`}
-        onPress={() => open(deal)}
-        style={({ hovered }) => [
-          styles.deal,
-          transition,
-          { borderColor: hovered ? theme.borderStrong : theme.border, backgroundColor: theme.surface },
-        ]}
-      >
-        <ThemedText type="smallBold" numberOfLines={2}>
-          {deal.title}
-        </ThemedText>
-        <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
-          {deal.contact_name || deal.company || 'Add a contact'}
-          {deal.contact_name && deal.company ? ' · ' + deal.company : ''}
-        </ThemedText>
-        <ThemedText type="caption" style={{ color: theme.text, fontWeight: '600' }}>
-          {deal.amount === null ? 'Value not set' : money(Number(deal.amount))}
-        </ThemedText>
-        <ThemedText type="caption" themeColor="textSecondary" numberOfLines={2}>
-          {deal.next_action ? `${deal.next_action}${deal.next_action_on ? ' · ' + deal.next_action_on : ''}` : 'Add the next step →'}
-        </ThemedText>
-        {overdue ? <StatusBadge label="Action overdue" tone="danger" /> : null}
-        {deal.stage === 'lost' && deal.lost_reason ? (
-          <ThemedText type="caption" themeColor="textSecondary" numberOfLines={2}>
-            Lost: {deal.lost_reason}
-          </ThemedText>
-        ) : null}
-      </Pressable>
-    );
-  };
-
-  const pipeline = (
-    <Card>
-      <SectionHeader
-        title="Sales pipeline"
-        subtitle="Track opportunities from first contact to closed deal."
-        action={
-          <Button
-            label="Export CSV"
-            size="sm"
-            icon={DownloadIcon}
-            disabled={!filtered.length}
-            onPress={() => {
-              try {
-                download(dealsCsv(filtered), `synq-deals-${today}.csv`, 'text/csv');
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-          />
-        }
-      />
-      <View style={styles.toolbar}>
-        <SearchInput placeholder="Search deals, contacts or companies" value={search} onChangeText={setSearch} style={styles.toolbarSearch} />
-        <Button
-          label={archived ? 'Show active deals' : 'View archived'}
-          size="sm"
-          onPress={() => setArchived((v) => !v)}
-          accessibilityHint={archived ? 'Shows deals that are still active' : 'Shows archived deals'}
-        />
-      </View>
-      {!rows.length ? (
-        <EmptyState
-          icon={HandshakeIcon}
-          title="No opportunities yet"
-          description="Opportunities are created from replies in Email duties."
-          action={{ label: 'Open Email duties', icon: MailIcon, onPress: () => selectTab('email') }}
-        />
-      ) : !filtered.length ? (
-        <EmptyState
-          title={search ? 'No matching deals' : archived ? 'No archived deals' : 'No active deals'}
-          description={search ? 'Try a different name or email address.' : archived ? 'Archived deals stay saved and can be restored.' : 'Every deal here is archived. Choose “View archived” to see them.'}
-          compact
-        />
-      ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.board}>
-          {STAGES.map((stage) => {
-            const deals = filtered.filter((d) => d.stage === stage);
-            const color = STAGE_TONE[stage];
-            return (
-              <View key={stage} style={[styles.column, { backgroundColor: alpha(color, 0.07), borderColor: alpha(color, 0.2) }]}>
-                <View style={styles.columnHead}>
-                  <ThemedText type="smallBold">{STAGE_LABELS[stage]}</ThemedText>
-                  <View style={[styles.countChip, { backgroundColor: alpha(color, 0.16) }]}>
-                    <Text style={[styles.countText, { color: theme.text }]}>{deals.length}</Text>
-                  </View>
-                </View>
-                <ThemedText type="caption" themeColor="textSecondary">
-                  {money(deals.reduce((s, d) => s + Number(d.amount || 0), 0))} known value
-                </ThemedText>
-                {deals.map(dealCard)}
-                {!archived ? (
-                  <Button label="Add deal" size="sm" variant="ghost" icon={PlusIcon} onPress={() => open(undefined, 'Deal', { stage })} style={styles.addDeal} accessibilityLabel={`Add a deal in ${STAGE_LABELS[stage]}`} />
-                ) : null}
-              </View>
-            );
-          })}
-        </ScrollView>
-      )}
-    </Card>
   );
 
   const salesAi = (
@@ -671,26 +547,7 @@ export function SalesWorkspace() {
         />
         {targetsBody}
       </Card>
-      <Split
-        ratio={1}
-        main={
-          <Card>
-            <SectionHeader title="Why deals were lost" subtitle="All recorded losses, including archived deals. Use them to improve the next conversation." />
-            {!reasons.size ? (
-              <EmptyState title="No lost-deal reasons recorded yet" compact />
-            ) : (
-              <View>
-                {[...reasons]
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([reason, count], index, list) => (
-                    <ListRow key={reason} title={reason || 'No reason given'} trailing={<ThemedText type="smallBold">{count}</ThemedText>} divider={index < list.length - 1} />
-                  ))}
-              </View>
-            )}
-          </Card>
-        }
-        side={rows.length > 0 ? <DepartmentActivityChart department="sales" /> : <View />}
-      />
+      {rows.length > 0 ? <DepartmentActivityChart department="sales" /> : null}
     </>
   );
 
@@ -706,7 +563,6 @@ export function SalesWorkspace() {
       main={
         <>
           {kpis}
-          {pipeline}
           <Split ratio={1.15} breakAt={1500} main={recentActivity} side={upcomingCard} />
         </>
       }
@@ -1044,6 +900,7 @@ export function SalesWorkspace() {
           />
         </ButtonRow>
       </ModalSheet>
+      <SendEmailSheet visible={sendOpen} onClose={() => setSendOpen(false)} />
     </View>
   );
 }
@@ -1055,15 +912,6 @@ const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   kpis: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
   kpiCell: { flexGrow: 1, minWidth: 0 },
-  toolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  toolbarSearch: { flexGrow: 1, flexBasis: 240 },
-  board: { gap: 12, paddingBottom: 6 },
-  column: { width: 232, gap: 10, padding: 12, borderRadius: Radius.control + 4, borderWidth: 1, alignSelf: 'flex-start' },
-  columnHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  countChip: { minWidth: 24, height: 22, paddingHorizontal: 7, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  countText: { fontSize: 12, fontWeight: '700' },
-  deal: { gap: 5, padding: 12, borderWidth: 1, borderRadius: Radius.control + 2 },
-  addDeal: { alignSelf: 'stretch' },
   targets: { gap: 18 },
   targetRow: { gap: 8 },
   targetHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' },

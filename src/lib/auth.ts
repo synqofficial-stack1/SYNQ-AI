@@ -32,7 +32,7 @@ export function authErrorMessage(
     return 'That email and password do not match an account.';
   }
   if (/Email not confirmed/i.test(message)) {
-    return 'This account is not enabled for sign-in yet. Contact the app administrator.';
+    return 'Confirm your email first: open the link we sent to your inbox (check spam too), then log in.';
   }
   if (/User already registered/i.test(message)) {
     return 'There is already an account with that email. Log in instead.';
@@ -119,6 +119,25 @@ export async function signInWithApple(): Promise<boolean> {
   }
 
   return true;
+}
+
+/**
+ * Where a sign-up confirmation link should land. On the web that is this app,
+ * which reads the session from the link. A phone has no page to read it, so the
+ * project's Site URL is used and the person logs in once confirmed.
+ */
+export function confirmationRedirect(): string | undefined {
+  return Platform.OS === 'web' ? returnAddress('/') : undefined;
+}
+
+/** Sends the sign-up confirmation email again. */
+export async function resendConfirmation(email: string): Promise<void> {
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email: email.trim(),
+    options: { emailRedirectTo: confirmationRedirect() },
+  });
+  if (error) throw new Error(authErrorMessage(error, 'Could not send the email again. Try again in a minute.'));
 }
 
 /** Where Supabase should send the browser back to once it is done. */

@@ -27,7 +27,7 @@ export default function MarketingScreen() {
           <>
             <Button label="Create reel" icon={VideoIcon} onPress={toPublisher} />
             <Button
-              label="Marketing chat"
+              label="Ask Marketing AI"
               variant="primary"
               icon={SparkIcon}
               onPress={() => router.push('/marketing?ai=1&department=marketing' as Parameters<typeof router.push>[0])}

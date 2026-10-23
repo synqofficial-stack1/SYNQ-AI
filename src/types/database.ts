@@ -13,6 +13,8 @@ export type Profile = {
   id: string;
   full_name: string | null;
   business_name: string | null;
+  /** Theme chosen in Settings; null until the person picks one. */
+  appearance: 'light' | 'dark' | 'system' | null;
   created_at: string;
 };
 

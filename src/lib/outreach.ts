@@ -119,6 +119,15 @@ export const connectGmail = (origin: string) =>
   });
 export const disconnectGmail = () =>
   invoke('gmail-auth', { action: 'disconnect' });
+/** One email to one person from the connected Gmail. Only call after the person pressed Send. */
+export const sendDirectEmail = (input: { to: string; subject: string; body: string }) =>
+  invoke<{ sent: true; from: string }>('email-outreach', {
+    action: 'send_one',
+    confirmed: true,
+    to: input.to.trim(),
+    subject: input.subject.trim(),
+    body: input.body,
+  });
 export const suggestEmailQuestions = (goal: string) =>
   invoke<{ questions: string[] }>('email-outreach', {
     action: 'suggest',

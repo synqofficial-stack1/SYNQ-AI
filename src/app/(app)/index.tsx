@@ -19,6 +19,7 @@ import {
   PlayIcon,
   PlugIcon,
   PlusIcon,
+  SendIcon,
   SparkIcon,
   TargetIcon,
   UserIcon,
@@ -38,6 +39,7 @@ import {
   ListRow,
   Page,
   Popover,
+  ProgressBar,
   SectionHeader,
   Select,
   SkeletonList,
@@ -52,6 +54,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { subscribeAnalytics } from '@/lib/analytics-events';
 import { setWorkspaceTaskStatus } from '@/lib/organization';
+import { loadSales, loadTarget, localDate, money, salesSummary, type SalesTarget } from '@/lib/sales-workspace';
 import { supabase } from '@/lib/supabase';
 import {
   compare,
@@ -159,15 +162,17 @@ function Welcome({ firstName, companyName }: { firstName: string; companyName: s
         <View ref={createAnchor} collapsable={false}>
           <Button label="Create" variant="primary" icon={PlusIcon} onPress={() => setCreateOpen(true)} accessibilityLabel="Create something new" />
         </View>
-        <Button label="Write emails" icon={MailIcon} onPress={() => go('/sales?compose=1')} />
-        <Button label="Generate content" icon={SparkIcon} onPress={() => go('/marketing?ai=1&department=marketing')} />
       </View>
-      <Popover anchorRef={createAnchor} visible={createOpen} onClose={() => setCreateOpen(false)} label="Create" width={260}>
+      {/* Every quick action lives here, so the dashboard has one place to start things. */}
+      <Popover anchorRef={createAnchor} visible={createOpen} onClose={() => setCreateOpen(false)} label="Create" width={290}>
         {[
-          { label: 'Email duty', hint: 'Write and send outreach from Gmail', icon: MailIcon, path: '/sales?compose=1' },
+          { label: 'Email', hint: 'Send one email from your Gmail', icon: SendIcon, path: '/sales?send=1' },
+          { label: 'Email duty', hint: 'AI-drafted outreach to many people', icon: MailIcon, path: '/sales?compose=1' },
           { label: 'Reel', hint: 'Upload a video and publish it', icon: VideoIcon, path: '/marketing?view=create' },
           { label: 'Meeting', hint: 'Plan a sales meeting', icon: CalendarIcon, path: '/sales?view=meetings' },
           { label: 'Team task', hint: 'Assign work to a teammate', icon: ClipboardIcon, path: '/company?tab=tasks' },
+          { label: 'Connect accounts', hint: 'Link YouTube, Instagram or X', icon: PlugIcon, path: '/plugins' },
+          { label: 'View activity', hint: 'Everything you have done in Synq', icon: ClockIcon, path: '/history' },
         ].map((item) => (
           <Pressable
             key={item.label}
@@ -265,44 +270,71 @@ function AskSynqPanel() {
   );
 }
 
-function QuickActions() {
-  const theme = useTheme();
-  const actions: { label: string; icon: ComponentType<IconProps>; onPress: () => void }[] = [
-    { label: 'Write emails', icon: MailIcon, onPress: () => go('/sales?compose=1') },
-    { label: 'Create reel', icon: VideoIcon, onPress: () => go('/marketing?view=create') },
-    { label: 'Generate content', icon: SparkIcon, onPress: () => go('/marketing?ai=1&department=marketing') },
-    { label: 'Book meeting', icon: CalendarIcon, onPress: () => go('/sales?view=meetings') },
-    { label: 'Assign task', icon: ClipboardIcon, onPress: () => go('/company?tab=tasks') },
-    { label: 'Connect accounts', icon: PlugIcon, onPress: () => go('/plugins') },
-    { label: 'View activity', icon: ClockIcon, onPress: () => go('/history') },
-    { label: 'Open Sales', icon: ArrowUpRightIcon, onPress: () => go('/sales') },
-  ];
+/** This month's company target, the same numbers Sales shows. */
+function TargetsCard({ attempt }: { attempt: number }) {
+  const [state, setState] = useState<{ target: SalesTarget | null; wonValue: number; wonDeals: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const month = localDate().slice(0, 7) + '-01';
+  useEffect(() => {
+    let live = true;
+    Promise.all([loadTarget(month), loadSales()])
+      .then(([target, deals]) => {
+        if (!live) return;
+        const summary = salesSummary(deals);
+        setState({ target, wonValue: summary.wonValue, wonDeals: summary.won.length });
+        setFailed(false);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [attempt, month]);
+  const monthLabel = new Date(month + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const revenueGoal = Number(state?.target?.revenue_goal ?? 0);
+  const dealsGoal = Number(state?.target?.deals_goal ?? 0);
   return (
     <Card>
-      <SectionHeader title="Quick actions" subtitle="Do more, faster." />
-      <View style={styles.quickGrid}>
-        {actions.map((action) => (
-          <Pressable
-            key={action.label}
-            accessibilityRole="button"
-            accessibilityLabel={action.label}
-            onPress={action.onPress}
-            style={({ hovered, pressed }) => [
-              styles.quick,
-              transition,
-              {
-                borderColor: hovered ? theme.borderStrong : theme.border,
-                backgroundColor: hovered || pressed ? theme.surfaceRaised : theme.surface,
-              },
-            ]}
-          >
-            <action.icon size={20} color={theme.text} />
-            <Text numberOfLines={2} style={[styles.quickLabel, { color: theme.text }]}>
-              {action.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <SectionHeader title="Targets" subtitle={monthLabel} action={<LinkButton label="Details" icon={ArrowIcon} onPress={() => go('/sales?view=targets')} />} />
+      {failed ? (
+        <EmptyState icon={TargetIcon} title="Targets are unavailable" description="Could not load this month's target. Try again in a moment." compact />
+      ) : !state ? (
+        <SkeletonList rows={2} />
+      ) : !state.target || (revenueGoal <= 0 && dealsGoal <= 0) ? (
+        <EmptyState
+          icon={TargetIcon}
+          title="No target for this month"
+          description="Your company owner can set a monthly goal in Sales."
+          action={{ label: 'Open targets', onPress: () => go('/sales?view=targets') }}
+          compact
+        />
+      ) : (
+        <View style={styles.targets}>
+          {revenueGoal > 0 ? (
+            <View style={styles.targetRow}>
+              <View style={styles.targetHead}>
+                <ThemedText type="small">Revenue won</ThemedText>
+                <ThemedText type="smallBold">
+                  {money(state.wonValue)} / {money(revenueGoal)}
+                </ThemedText>
+              </View>
+              <ProgressBar value={state.wonValue / revenueGoal} label="Revenue target progress" />
+            </View>
+          ) : null}
+          {dealsGoal > 0 ? (
+            <View style={styles.targetRow}>
+              <View style={styles.targetHead}>
+                <ThemedText type="small">Deals won</ThemedText>
+                <ThemedText type="smallBold">
+                  {state.wonDeals} / {dealsGoal}
+                </ThemedText>
+              </View>
+              <ProgressBar value={state.wonDeals / dealsGoal} color={DataColors.company} label="Deals target progress" />
+            </View>
+          ) : null}
+        </View>
+      )}
     </Card>
   );
 }
@@ -625,45 +657,15 @@ export default function DashboardScreen() {
     </Card>
   );
 
-  const meetings = (
-    <Card>
-      <SectionHeader title="Upcoming meetings" action={<LinkButton label="View all" icon={ArrowIcon} onPress={() => go('/sales?view=meetings')} />} />
-      {!data ? (
-        <SkeletonList rows={2} />
-      ) : !data.upcomingMeetings.length ? (
-        <EmptyState
-          icon={CalendarIcon}
-          title="No upcoming meetings"
-          description="Meetings you organise or are invited to appear here."
-          action={{ label: 'Plan a meeting', onPress: () => go('/sales?view=meetings') }}
-          compact
-        />
-      ) : (
-        <View>
-          {data.upcomingMeetings.map((meeting, index) => (
-            <ListRow
-              key={meeting.id}
-              title={meeting.title}
-              subtitle={meetingTime(meeting.starts_at)}
-              leading={<IconTile icon={CalendarIcon} color={DataColors.marketing} size={38} />}
-              onPress={() => go('/sales?view=meetings')}
-              divider={index < data.upcomingMeetings.length - 1}
-            />
-          ))}
-        </View>
-      )}
-    </Card>
-  );
-
   const ask = <AskSynqPanel />;
-  const quick = <QuickActions />;
+  const targets = <TargetsCard attempt={attempt} />;
 
   const layout: ReactNode[][] =
     columns === 3
-      ? [[chart, recent], [departments, quick], [ask, nextUp, meetings]]
+      ? [[chart, recent], [departments, targets], [ask, nextUp]]
       : columns === 2
-        ? [[chart, recent, quick], [ask, departments, nextUp, meetings]]
-        : [[ask, chart, nextUp, meetings, departments, quick, recent]];
+        ? [[chart, recent], [ask, targets, departments, nextUp]]
+        : [[ask, chart, targets, nextUp, departments, recent]];
   const flexes = columns === 3 ? [1.5, 1.15, 1] : [1.35, 1];
 
   return (
@@ -782,4 +784,7 @@ const styles = StyleSheet.create({
   },
   taskFill: { width: 12, height: 12, borderRadius: 6 },
   taskText: { flex: 1, gap: 2 },
+  targets: { gap: 14 },
+  targetRow: { gap: 6 },
+  targetHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
 });

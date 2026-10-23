@@ -4,9 +4,18 @@ import { Platform } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { SessionProvider } from '@/hooks/use-session';
+import { SessionProvider, useSession } from '@/hooks/use-session';
 import { WorkspaceProvider } from '@/hooks/use-workspace';
-import { loadAppearancePreference } from '@/lib/appearance';
+import { loadAppearancePreference, syncAppearanceWithAccount } from '@/lib/appearance';
+
+/** Applies the theme saved on the account each time someone signs in. */
+function AppearanceSync() {
+  const userId = useSession().session?.user.id;
+  useEffect(() => {
+    if (userId) void syncAppearanceWithAccount(userId).catch(() => {});
+  }, [userId]);
+  return null;
+}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -29,6 +38,7 @@ export default function RootLayout() {
   const base = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   return (
     <SessionProvider>
+      <AppearanceSync />
       <WorkspaceProvider>
         <ThemeProvider
           value={{

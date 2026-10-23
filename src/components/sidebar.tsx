@@ -85,11 +85,15 @@ async function loadBadgeCounts(): Promise<Record<Badge, number>> {
   const [meetings, drafts] = await Promise.all([
     // Only meetings this person organizes or attends are visible to them.
     supabase.from('sales_meetings').select('id', { count: 'exact', head: true }).gt('starts_at', new Date().toISOString()),
-    supabase.from('marketing_post_drafts').select('id', { count: 'exact', head: true }),
+    // A draft stops counting once any destination has published it.
+    supabase.from('marketing_post_drafts').select('id, social_posts(status)').limit(500),
   ]);
+  const unpublished = (drafts.data ?? []).filter(
+    (draft: { social_posts?: { status: string }[] | null }) => !(draft.social_posts ?? []).some((post) => post.status === 'posted'),
+  ).length;
   return {
     sales: meetings.error ? 0 : meetings.count ?? 0,
-    marketing: drafts.error ? 0 : drafts.count ?? 0,
+    marketing: drafts.error ? 0 : unpublished,
   };
 }
 

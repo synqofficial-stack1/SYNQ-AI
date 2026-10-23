@@ -34,6 +34,7 @@ const KIND_FOR_SOURCE: Record<string, HistoryKind> = {
   calls: 'run',
   auth: 'account',
   profiles: 'account',
+  outreach: 'email',
 };
 
 const PATH_FOR_KIND: Partial<Record<HistoryKind, string>> = {
