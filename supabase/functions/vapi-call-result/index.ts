@@ -1,5 +1,9 @@
 // Receives Vapi end-of-call reports. The request is public at the platform
 // layer, so the Vapi Bearer credential is checked before reading the payload.
+//
+// Recovered verbatim from the deployed function (version 8) on 2026-10-22.
+// It was deployed without being committed. No screen in src/ starts a Vapi
+// call yet, so this only matters once that client exists.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 type VapiMessage = {

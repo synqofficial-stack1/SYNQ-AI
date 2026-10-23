@@ -1,0 +1,30 @@
+name: Tests
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+jobs:
+  unit:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    # The suites run on Node's built-in test runner, but several load the
+    # `typescript` package to compile the code they test, so dependencies
+    # are installed first. The browser smoke test runs separately in
+    # playwright.yml against the login page.
+    - name: Install dependencies
+      run: npm ci
+    - run: npm run test:calls
+    - run: npm run test:ai-mode
+    - run: npm run test:credits
+    - run: npm run test:email
+    - run: npm run test:sales
+    - run: npm run test:sales-targets
+    - run: npm run test:onboarding
+    - run: npm run test:video
+    - run: npm run test:marketing-publishing
