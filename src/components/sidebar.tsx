@@ -16,7 +16,6 @@ import {
   HomeIcon,
   MegaphoneIcon,
   PuzzleIcon,
-  UsersIcon,
   type IconProps,
 } from '@/components/icons';
 import { Avatar, transition } from '@/components/ui';
@@ -71,7 +70,6 @@ const DEPARTMENTS: NavEntry[] = [
 ];
 
 const QUICK_ACCESS: NavEntry[] = [
-  { label: 'Team', path: '/company?tab=team', icon: UsersIcon, matches: () => false },
   { label: 'History', path: '/history', icon: ClockIcon, matches: (p) => p.startsWith('/history') },
 ];
 
