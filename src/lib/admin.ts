@@ -211,6 +211,12 @@ export const searchPlatform = (query: string) =>
 
 export const loadUserDetail = (userId: string) => call<UserDetail>({ action: 'user', user_id: userId });
 
+/** A problem report someone sent from Settings: who and when, never any text. */
+export type ProblemReport = { id: string; userId: string | null; email: string | null; createdAt: string };
+
+/** The latest problem reports, for the admin notification bell. */
+export const loadProblemReports = () => call<{ reports: ProblemReport[] }>({ action: 'reports' });
+
 /** "3 min ago". Shared shape with the dashboard's, kept local to avoid a cycle. */
 export function ago(iso: string | null): string {
   if (!iso) return 'never';

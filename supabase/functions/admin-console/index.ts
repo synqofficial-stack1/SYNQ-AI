@@ -515,6 +515,9 @@ async function feed(db: SupabaseClient, limit: number, severity: string | null) 
   let query = db
     .from('events')
     .select('id, user_id, source, kind, severity, summary, subject_id, meta, created_at')
+    // Admins opening the console are kept as an audit trail (see
+    // logConsoleView) but are noise in the feed, which is about what customers do.
+    .neq('kind', 'admin.console_viewed')
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 200));
 
@@ -628,6 +631,32 @@ async function userDetail(db: SupabaseClient, userId: string) {
 }
 
 /**
+ * Problem reports people sent from Settings, newest first, for the admin
+ * notification bell. Only who reported and when: the report carries no text.
+ */
+async function problemReports(db: SupabaseClient) {
+  const [{ data, error }, { data: userList }] = await Promise.all([
+    db
+      .from('events')
+      .select('id, user_id, created_at')
+      .eq('kind', 'settings.failure_alert_requested')
+      .order('created_at', { ascending: false })
+      .limit(20),
+    db.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+  ]);
+  if (error) throw new Error(error.message);
+  const emails = new Map((userList?.users ?? []).map((user) => [user.id, user.email ?? null]));
+  return {
+    reports: (data ?? []).map((row) => ({
+      id: String(row.id),
+      userId: row.user_id ? String(row.user_id) : null,
+      email: row.user_id ? (emails.get(String(row.user_id)) ?? null) : null,
+      createdAt: String(row.created_at),
+    })),
+  };
+}
+
+/**
  * Looking at the whole platform is itself an event worth recording, but not
  * once per poll — the feed refreshes every few seconds.
  */
@@ -701,6 +730,8 @@ Deno.serve(async (req) => {
       }
       case 'feed':
         return json(await feed(db, body.limit ?? 40, body.severity ?? null));
+      case 'reports':
+        return json(await problemReports(db));
       case 'search':
         return json(await search(db, String(body.query ?? '')));
       case 'user':

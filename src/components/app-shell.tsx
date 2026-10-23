@@ -5,6 +5,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { AIWorkspace } from '@/components/ai-workspace';
 import {
+  AlertIcon,
   BellIcon,
   BuildingIcon,
   CalendarIcon,
@@ -19,7 +20,6 @@ import {
   MegaphoneIcon,
   SparkIcon,
   TargetIcon,
-  UploadIcon,
   UserPlusIcon,
   VideoIcon,
   type IconProps,
@@ -33,12 +33,13 @@ import { DataColors, Radius, Spacing } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
+import { ago, isAdmin, loadProblemReports, type ProblemReport } from '@/lib/admin';
 import { supabase } from '@/lib/supabase';
 
 const TITLES: Record<string, string> = {
   '/': 'Dashboard',
   '/ceo': 'Control Center',
-  '/history': 'Activity',
+  '/history': 'History',
   '/import-leads': 'Sales · Leads',
   '/sales': 'Sales',
   '/company': 'Company',
@@ -55,7 +56,7 @@ const HINTS: Record<string, string> = {
   '/sales': '(e.g. leads, meetings, email duties)',
   '/import-leads': '(e.g. leads, meetings, email duties)',
   '/marketing': '(e.g. create reel, drafts, publishing)',
-  '/plugins': '(e.g. connect YouTube, Gmail)',
+  '/plugins': '(e.g. connect YouTube, Instagram)',
   '/settings': '(e.g. appearance, password, delete account)',
 };
 
@@ -74,20 +75,22 @@ const DESTINATIONS: Destination[] = [
   { label: 'Ask Synq', hint: 'Chat with your AI assistant', action: 'assistant', keywords: 'ai assistant chat help', icon: SparkIcon },
   { label: 'Company', hint: 'Team, chat, tasks and join requests', path: '/company', keywords: 'team members chat tasks assign join requests workspace', icon: BuildingIcon },
   { label: 'Sales', hint: 'Sales overview', path: '/sales', keywords: 'sales overview pipeline', icon: ChartIcon },
-  { label: 'Import leads', hint: 'Bring contacts in from a spreadsheet', path: '/import-leads', keywords: 'leads crm import csv contacts find', icon: UploadIcon },
   { label: 'Meetings', hint: 'Plan and review sales meetings', path: '/sales?view=meetings', keywords: 'meetings schedule book', icon: CalendarIcon },
   { label: 'Targets', hint: 'Monthly revenue and deal targets', path: '/sales?view=targets', keywords: 'targets goals revenue', icon: TargetIcon },
   { label: 'Email duties', hint: 'Gmail outreach and replies', path: '/sales?view=email', keywords: 'email outreach gmail cold emails replies', icon: MailIcon },
   { label: 'Write emails', hint: 'Start a new email duty', path: '/sales?compose=1', keywords: 'write email compose new duty', icon: MailIcon },
   { label: 'Marketing', hint: 'Content and publishing', path: '/marketing', keywords: 'marketing content', icon: MegaphoneIcon },
   { label: 'Create reel', hint: 'Upload a video and publish it', path: '/marketing?view=create', keywords: 'reel video upload publish post youtube instagram', icon: VideoIcon },
-  { label: 'Plugins', hint: 'Connect YouTube, Instagram, X and Gmail', path: '/plugins', keywords: 'plugins tools marketplace integrations connect accounts youtube instagram x twitter gmail', icon: GridIcon },
-  { label: 'Activity', hint: 'Everything your AI team has done', path: '/history', keywords: 'history activity runs', icon: ClockIcon },
+  { label: 'Plugins', hint: 'Connect YouTube, Instagram and X', path: '/plugins', keywords: 'plugins tools integrations connect accounts youtube instagram x twitter', icon: GridIcon },
+  { label: 'History', hint: 'Everything you have done in Synq', path: '/history', keywords: 'history activity log reports runs', icon: ClockIcon },
   { label: 'Settings', hint: 'Profile, appearance, privacy', path: '/settings', keywords: 'settings profile appearance theme dark light password delete account', icon: GearIcon },
-  { label: 'Plans', hint: 'Synq Pro and credits', path: '/upgrade', keywords: 'plans upgrade pro pricing credits billing', icon: CrownIcon },
+  { label: 'Plans', hint: 'Synq Pro is coming soon', path: '/upgrade', keywords: 'plans upgrade pro pricing credits billing', icon: CrownIcon },
 ];
 
 const COLLAPSE_KEY = 'synq-sidebar-collapsed';
+/** Newest problem report this admin has seen; anything newer lights the bell. */
+const REPORTS_SEEN_KEY = 'synq-problem-reports-seen';
+const REPORTS_POLL_MS = 60_000;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const theme = useTheme();
@@ -137,6 +140,46 @@ export function AppShell({ children }: { children: ReactNode }) {
       live = false;
     };
   }, []);
+
+  // Problem reports for the platform admins. The bell is the only place they
+  // surface, so poll while the app is open; the admin-console function
+  // refuses anyone who is not in app_admins, and isAdmin() only decides
+  // whether to ask.
+  const [reports, setReports] = useState<ProblemReport[]>([]);
+  const [reportsSeen, setReportsSeen] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    AsyncStorage.getItem(REPORTS_SEEN_KEY)
+      .then((seen) => {
+        if (live) setReportsSeen(seen);
+      })
+      .catch(() => {});
+    isAdmin().then((admin) => {
+      if (!live || !admin) return;
+      const load = () =>
+        loadProblemReports()
+          .then(({ reports: next }) => {
+            if (live) setReports(next);
+          })
+          .catch(() => {});
+      load();
+      timer = setInterval(load, REPORTS_POLL_MS);
+    });
+    return () => {
+      live = false;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+  const unreadReports = reports.filter((report) => !reportsSeen || report.createdAt > reportsSeen).length;
+
+  const openNotifications = () => {
+    setNotificationsOpen(true);
+    if (reports[0]) {
+      setReportsSeen(reports[0].createdAt);
+      AsyncStorage.setItem(REPORTS_SEEN_KEY, reports[0].createdAt).catch(() => {});
+    }
+  };
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -198,14 +241,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <View style={styles.main}>
         <TopBar
-          title={TITLES[pathname] ?? (pathname.startsWith('/plugins') ? 'Plugins' : pathname.startsWith('/history') ? 'Activity' : 'Synq')}
+          title={TITLES[pathname] ?? (pathname.startsWith('/plugins') ? 'Plugins' : pathname.startsWith('/history') ? 'History' : 'Synq')}
           searchHint={HINTS[pathname] ?? HINTS['/']}
           showMenuButton={!isWide}
           onMenu={() => setDrawerOpen(true)}
           onOpenSearch={openSearch}
           onOpenAssistant={openAI}
-          onOpenNotifications={() => setNotificationsOpen(true)}
-          hasNotifications={pending > 0}
+          onOpenNotifications={openNotifications}
+          hasNotifications={pending > 0 || unreadReports > 0}
           notificationsAnchor={notificationsAnchor}
           userLabel={userName}
           menuOpen={userMenuOpen}
@@ -305,6 +348,34 @@ export function AppShell({ children }: { children: ReactNode }) {
         <View style={styles.menuHead}>
           <ThemedText type="cardTitle">Notifications</ThemedText>
         </View>
+        {reports.length ? (
+          <View>
+            <ThemedText type="caption" themeColor="textSecondary" style={styles.menuSection}>
+              Problem reports{unreadReports ? ` · ${unreadReports} new` : ''}
+            </ThemedText>
+            {reports.slice(0, 5).map((report) => (
+              <Pressable
+                key={report.id}
+                accessibilityRole="button"
+                onPress={() => {
+                  setNotificationsOpen(false);
+                  router.push('/ceo');
+                }}
+                style={({ hovered }) => [styles.menuItem, hovered && { backgroundColor: theme.surfaceRaised }]}
+              >
+                <IconTile icon={AlertIcon} color="#DC2626" size={34} />
+                <View style={styles.resultText}>
+                  <ThemedText type="smallBold" numberOfLines={1}>
+                    {report.email ?? 'A deleted account'} reported a problem
+                  </ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {ago(report.createdAt)} · open the Control Center
+                  </ThemedText>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {pending > 0 ? (
           <Pressable
             accessibilityRole="button"
@@ -324,11 +395,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               </ThemedText>
             </View>
           </Pressable>
-        ) : (
+        ) : !reports.length ? (
           <View style={styles.menuEmpty}>
             <EmptyState icon={BellIcon} title="You're all caught up" description="Join requests for your company show up here." compact />
           </View>
-        )}
+        ) : null}
       </Popover>
 
       <Popover
@@ -421,4 +492,5 @@ const styles = StyleSheet.create({
   menuText: { fontSize: 14, fontWeight: '500' },
   menuDivider: { height: 1, marginVertical: 4 },
   menuEmpty: { padding: 6 },
+  menuSection: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 2 },
 });

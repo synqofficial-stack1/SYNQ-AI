@@ -303,7 +303,7 @@ export async function loadDashboard(rangeDays: DashboardRange): Promise<Dashboar
       department: 'Sales' as const,
       status: 'Added',
       createdAt: row.created_at,
-      path: '/import-leads',
+      path: '/history',
     })),
     ...recentCampaigns.map((row) => ({
       id: `email-${row.id}`,

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import { DeleteAccountPanel } from '@/components/delete-account-panel';
 import {
@@ -52,6 +52,7 @@ import {
 } from '@/lib/appearance';
 import { authErrorMessage } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { openWhatsAppSupport, SUPPORT_PHONE } from '@/lib/support';
 
 // Settings is one scrolling page of cards; the list on the left jumps between
 // them. Only settings Synq can actually store are shown — there is no
@@ -77,7 +78,6 @@ const THEMES: { value: AppearancePreference; label: string; icon: ComponentType<
   { value: 'system', label: 'System', icon: MonitorIcon },
 ];
 
-const SUPPORT_PHONE = '6300840955';
 const MIN_PASSWORD = 6;
 const NAME_MAX = 100;
 const BUSINESS_MAX = 120;
@@ -297,8 +297,8 @@ export default function SettingsScreen() {
     showToast(error ? 'Could not send the alert. Please try again later.' : 'Thanks — the Synq team has been alerted.', error ? 'danger' : 'success');
   }
 
-  const openLink = (url: string) => {
-    Linking.openURL(url).catch(() => showToast('Your device could not open that link.', 'danger'));
+  const contactSupport = async () => {
+    if (!(await openWhatsAppSupport())) showToast('Your device could not open WhatsApp.', 'danger');
   };
 
   // ---------------------------------------------------------------- cards
@@ -490,7 +490,7 @@ export default function SettingsScreen() {
       <Card>
         <SectionHeader title="Help & About" subtitle="Get help, or tell us when something breaks." />
         <View style={[styles.list, { borderColor: theme.border }]}>
-          <ActionRow icon={HelpIcon} label={`Call support · ${SUPPORT_PHONE}`} onPress={() => openLink(`tel:${SUPPORT_PHONE}`)} />
+          <ActionRow icon={HelpIcon} label={`Chat with support on WhatsApp · ${SUPPORT_PHONE}`} onPress={() => void contactSupport()} />
           <ActionRow icon={AlertIcon} label={alertBusy ? 'Sending alert…' : 'Report a problem to the Synq team'} onPress={() => void (alertBusy ? undefined : sendFailureAlert())} />
           <ActionRow icon={ExternalLinkIcon} label="Privacy policy" onPress={() => router.push('/privacy')} divider={false} />
         </View>
