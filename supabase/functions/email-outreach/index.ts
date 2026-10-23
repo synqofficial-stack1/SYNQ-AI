@@ -1,7 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { namedRecipients, questionsFrom } from '../_shared/outreach-core.ts';
+import { EMAIL, mimeMessage, namedRecipients, questionsFrom } from '../_shared/outreach-core.ts';
 import { aiJson, chargedAI } from '../_shared/outreach-ai.ts';
-import { mailboxAccess } from '../_shared/outreach-gmail.ts';
+import { gmail, mailboxAccess } from '../_shared/outreach-gmail.ts';
 import {
   buildReport,
   processCampaign,
@@ -16,6 +16,8 @@ const CORS = {
 };
 const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: CORS });
+/** Single emails (Send email) per person per 24 hours. */
+const DIRECT_DAILY_LIMIT = 50;
 function text(value: unknown, label: string, max: number) {
   if (typeof value !== 'string' || !value.trim() || value.length > max)
     throw new Error(`${label} is required (up to ${max} characters).`);
@@ -70,6 +72,52 @@ Deno.serve(async (req) => {
         return { subject, body: text(value.body, 'Email', 12000) };
       });
       return json(result);
+    }
+    if (body.action === 'send_one') {
+      // One email to one person from the caller's own connected Gmail. Sent
+      // only when the person pressed Send (confirmed), never to an address that
+      // opted out, and at most DIRECT_DAILY_LIMIT a day so a mistake or a script
+      // cannot spam from someone's account.
+      if (body.confirmed !== true)
+        throw new Error('Review the email and press Send to confirm.');
+      const to = text(body.to, 'Recipient', 254).toLowerCase();
+      if (!EMAIL.test(to)) throw new Error('Enter one valid email address.');
+      const subject = text(body.subject, 'Subject', 200);
+      if (/[\r\n]/.test(subject)) throw new Error('Subject must be one line.');
+      const message = text(body.body, 'Message', 10000);
+      const { data: optedOut } = await db
+        .from('outreach_suppressions')
+        .select('email')
+        .eq('user_id', user.id)
+        .eq('email', to)
+        .maybeSingle();
+      if (optedOut)
+        throw new Error('This person asked not to be emailed, so Synq will not send to them.');
+      const { count } = await db
+        .from('events')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('kind', 'email.direct_sent')
+        .gt('created_at', new Date(Date.now() - 86_400_000).toISOString());
+      if ((count ?? 0) >= DIRECT_DAILY_LIMIT)
+        throw new Error(`You have sent ${DIRECT_DAILY_LIMIT} emails from Synq today. Try again tomorrow.`);
+      const mailbox = await mailboxAccess(db, user.id);
+      const sent = await gmail(mailbox.token, 'messages/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          raw: mimeMessage(mailbox.email, to, subject, message, `<${crypto.randomUUID()}@synq.local>`),
+        }),
+      });
+      // Activity only: no recipient, subject or text, like every other event.
+      await db.from('events').insert({
+        user_id: user.id,
+        source: 'outreach',
+        kind: 'email.direct_sent',
+        severity: 'info',
+        summary: 'Sent an email from Gmail',
+        meta: {},
+      });
+      return json({ sent: true, from: mailbox.email, id: sent?.id ?? null });
     }
     if (body.action === 'create') {
       const title = text(body.title, 'Campaign name', 120);

@@ -13,6 +13,8 @@ export type Profile = {
   id: string;
   full_name: string | null;
   business_name: string | null;
+  /** Theme chosen in Settings; null until the person picks one. */
+  appearance: 'light' | 'dark' | 'system' | null;
   created_at: string;
 };
 
@@ -361,4 +363,13 @@ export type AICreditDebit = {
   cost: 1 | 2;
   refunded: boolean;
   created_at: string;
+};
+
+// Written by the sender from Settings > Help; acknowledged_at is set only by admin-console.
+export type FeedbackMessage = {
+  id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  acknowledged_at: string | null;
 };

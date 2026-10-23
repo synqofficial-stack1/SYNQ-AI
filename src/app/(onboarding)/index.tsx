@@ -32,6 +32,9 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // The final "finish setup" write, kept apart from the per-answer draft save so
+  // Continue stays pressable while a debounced draft save is still settling.
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [legacyAccount, setLegacyAccount] = useState(false);
   const queue = useRef<Promise<void>>(Promise.resolve());
@@ -116,7 +119,7 @@ export default function OnboardingScreen() {
   }
 
   async function next() {
-    if (!ready || !session?.user.id) return;
+    if (!ready || submitting || !session?.user.id) return;
     if (debounce.current) {
       clearTimeout(debounce.current);
       debounce.current = null;
@@ -142,7 +145,7 @@ export default function OnboardingScreen() {
         : 'Some required answers are missing. Review your answers and try again.');
       return;
     }
-    setSaving(true);
+    setSubmitting(true);
     setError(null);
     try {
       await completeOnboarding(session.user.id, answers);
@@ -151,11 +154,22 @@ export default function OnboardingScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not finish setup. Your answers are saved; please retry.');
     } finally {
-      setSaving(false);
+      setSubmitting(false);
     }
   }
 
   const isOtherField = answers[question.key] === 'other';
+
+  // When Continue is disabled, say exactly what is still needed. Without this,
+  // q2 (which also requires a business name) silently traps people who picked
+  // an industry but did not fill the name field.
+  const missingReason = !answers[question.key]
+    ? 'Pick an option to continue.'
+    : question.key === 'q2' && !answers.businessName.trim()
+      ? 'Enter your business name above to continue.'
+      : isOtherField && !(answers.otherAnswers[question.key] ?? '').trim()
+        ? 'Type your answer above to continue.'
+        : null;
 
   return (
     <ThemedView style={styles.page}>
@@ -173,6 +187,30 @@ export default function OnboardingScreen() {
           <ThemedText type="pageTitle" style={styles.title}>{question.title}{question.important ? <ThemedText accessibilityLabel="Important question"> ★</ThemedText> : null}</ThemedText>
           {question.important ? <ThemedText accessibilityLabel="Important question" type="caption" themeColor="textSecondary">★ Important question</ThemedText> : null}
         </View>
+
+        {question.key === 'q2' ? (
+          <View style={styles.nameField}>
+            <ThemedText type="smallBold">
+              Business name <ThemedText style={{ color: AccentColors.primary }}>*</ThemedText>
+            </ThemedText>
+            <TextInput
+              maxLength={120}
+              value={answers.businessName}
+              onChangeText={(value) => {
+                const nextAnswers = { ...answers, businessName: value };
+                setAnswers(nextAnswers);
+                persist(nextAnswers, true);
+              }}
+              placeholder="e.g. Kaapi House"
+              placeholderTextColor={theme.textSecondary}
+              accessibilityLabel="Business name"
+              style={[styles.otherInput, { marginTop: 8, color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+            />
+            <ThemedText type="caption" themeColor="textSecondary" style={styles.nameHelp}>
+              Then choose your industry below.
+            </ThemedText>
+          </View>
+        ) : null}
 
         {(
           <View style={styles.options}>
@@ -196,13 +234,6 @@ export default function OnboardingScreen() {
           </View>
         )}
 
-        {question.key === 'q2' ? <TextInput
-          maxLength={120} value={answers.businessName} onChangeText={(value) => {
-            const next = { ...answers, businessName: value }; setAnswers(next); persist(next, true);
-          }} placeholder="Business name" placeholderTextColor={theme.textSecondary}
-          accessibilityLabel="Business name" style={[styles.otherInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-        /> : null}
-
         {isOtherField ? (
           <TextInput
             multiline
@@ -223,9 +254,13 @@ export default function OnboardingScreen() {
             </Pressable>
           ) : <View />}
           <View style={styles.footerRight}>
-            <ThemedText type="caption" themeColor="textSecondary">{saving ? 'Saving…' : 'Your answers are saved'}</ThemedText>
-            <Pressable onPress={next} disabled={!ready || saving} style={[styles.nextButton, (!ready || saving) && styles.disabled]} accessibilityRole="button">
-              {saving ? <ActivityIndicator color="#111" /> : <ThemedText style={styles.nextText}>{step === QUESTIONS.length - 1 ? 'Finish setup' : 'Continue'}</ThemedText>}
+            <ThemedText type="caption" themeColor="textSecondary">
+              {submitting ? 'Finishing setup…' : saving ? 'Saving…' : !ready && missingReason ? missingReason : 'Your answers are saved'}
+            </ThemedText>
+            <Pressable onPress={next} disabled={!ready || submitting} style={[styles.nextButton, (!ready || submitting) && styles.disabled]} accessibilityRole="button"
+              accessibilityHint={!ready && missingReason ? missingReason : undefined}
+            >
+              {submitting ? <ActivityIndicator color="#111" /> : <ThemedText style={styles.nextText}>{step === QUESTIONS.length - 1 ? 'Finish setup' : 'Continue'}</ThemedText>}
             </Pressable>
           </View>
         </View>
@@ -244,6 +279,8 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: AccentColors.primary, borderRadius: 5 },
   intro: { gap: 10, marginTop: 38, marginBottom: 26 },
   title: { fontSize: 27, lineHeight: 34 },
+  nameField: { marginBottom: 20 },
+  nameHelp: { marginTop: 8 },
   options: { gap: 10 },
   option: { minHeight: 58, borderWidth: 1, borderRadius: Radius.card, paddingHorizontal: 16, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   optionLabel: { flex: 1, fontSize: 15, lineHeight: 21 },

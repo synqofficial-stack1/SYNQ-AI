@@ -6,7 +6,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { File as ExpoFile } from 'expo-file-system';
 
 import { PlatformMark } from '@/components/brand-icons';
-import { FilmIcon, PlusIcon, RefreshIcon, SendIcon, SparkIcon, TrashIcon, UploadIcon, VideoIcon } from '@/components/icons';
+import { CheckCircleIcon, CircleIcon, FilmIcon, PlugIcon, PlusIcon, RefreshIcon, SendIcon, SparkIcon, TrashIcon, UploadIcon, VideoIcon } from '@/components/icons';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import {
@@ -17,11 +17,12 @@ import {
   EmptyState,
   Field,
   InlineAlert,
+  LinkButton,
   ListRow,
   ProgressBar,
   SectionHeader,
+  Select,
   StatusBadge,
-  Switch,
   transition,
   useBreakpoint,
   type Tone,
@@ -34,10 +35,11 @@ import { supabase } from '@/lib/supabase';
 import { composeMarketingCaption, MARKETING_CAPTION_LIMITS, validateMarketingDuration, validateMarketingVideo } from '@/lib/marketing-validation';
 import { sendChatMessage } from '@/lib/chat';
 
-// Create Reel: upload a finished MP4, add a caption, choose where it goes, and
-// publish. Every step saves a private draft; a destination toggle only selects
-// where the post will go. Nothing is published until the person presses
-// Publish in the review panel, which names every destination first.
+// Create Reel: upload a finished MP4, add a caption, and publish. A post goes to
+// every connected plugin (whose publishing is on); which plugins those are is
+// managed on the Plugins page, so this screen only shows them. Every step saves
+// a private draft, and nothing is published until the person presses Publish
+// in the review panel, which names every destination first.
 
 type DraftWithMedia = MarketingDraftWithMedia;
 const fileSize = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -98,7 +100,6 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
   const [caption, setCaption] = useState('');
   const [hashtags, setHashtags] = useState('');
   const [youtubeVisibility, setYoutubeVisibility] = useState<'public' | 'unlisted' | 'private'>('public');
-  const [platforms, setPlatforms] = useState<SocialPlatform[]>([]);
   const [platformContent, setPlatformContent] = useState<Partial<Record<SocialPlatform, string>>>({});
   const [filename, setFilename] = useState('');
   const [size, setSize] = useState(0);
@@ -110,6 +111,16 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [libraryView, setLibraryView] = useState<'drafts' | 'uploads'>('drafts');
+  // Destinations follow the Plugins page: every connected account with publishing on.
+  const platforms = useMemo(
+    () =>
+      SOCIAL_PLATFORMS.filter((p) => {
+        const connection = connections.find((c) => c.platform === p);
+        return Boolean(connection?.connected) && connection?.publishing_enabled !== false;
+      }),
+    [connections],
+  );
 
   const refresh = useCallback(async () => {
     const [saved, uploads, linked] = await Promise.all([listDrafts(), listUploadedMedia(), loadConnections()]);
@@ -179,10 +190,9 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
     return () => clearInterval(timer);
   }, [media, player, previewUri]);
 
-  const selectedPlatforms = useMemo(() => platforms, [platforms]);
   const reset = () => {
     setDraft(null); setMedia(null); setPreviewUri(null); setFilename(''); setSize(0);
-    setTitle(''); setDescription(''); setCaption(''); setHashtags(''); setPlatforms([]); setPlatformContent({}); setPosts([]); setDuration(null); setYoutubeVisibility('public');
+    setTitle(''); setDescription(''); setCaption(''); setHashtags(''); setPlatformContent({}); setPosts([]); setDuration(null); setYoutubeVisibility('public');
   };
 
   async function chooseVideo() {
@@ -234,7 +244,7 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
     setDraft(item); setMedia(item.marketing_media); setFilename(item.marketing_media.filename); setSize(item.marketing_media.size_bytes);
     setTitle(item.title); setDescription(item.description); setCaption(item.caption); setHashtags(item.hashtags);
     setYoutubeVisibility(item.youtube_visibility ?? 'public');
-    setPlatforms(item.platforms.filter((platform) => SOCIAL_PLATFORMS.includes(platform))); setPlatformContent(item.platform_content ?? {}); setError(null); setNotice(null);
+    setPlatformContent(item.platform_content ?? {}); setError(null); setNotice(null);
     setPreviewUri(null); setPosts([]);
     void draftPreviewUrl(item.marketing_media.storage_path).then(setPreviewUri).catch((e) => setError(e.message));
     void listDraftPosts(item.id).then(setPosts).catch((e) => setError(e.message));
@@ -243,14 +253,9 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
   async function resumeUpload(item: MarketingMedia) {
     setError(null); setNotice(null); setDraft(null); setMedia(item); setFilename(item.filename);
     setSize(item.size_bytes); setDuration(item.duration_seconds); setTitle(item.filename.replace(/\.mp4$/i, ''));
-    setDescription(''); setCaption(''); setHashtags(''); setPlatforms([]); setPosts([]);
+    setDescription(''); setCaption(''); setHashtags(''); setPosts([]);
     try { setPreviewUri(await draftPreviewUrl(item.storage_path)); }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not load this uploaded video.'); }
-  }
-
-  function togglePlatform(platform: SocialPlatform) {
-    setPlatforms((current) => current.includes(platform) ? current.filter((item) => item !== platform) : [...current, platform]);
-    setPlatformContent((current) => ({ ...current, [platform]: current[platform] ?? caption }));
   }
 
   async function connect(platform: SocialPlatform) {
@@ -262,7 +267,7 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
 
   async function save(status: 'draft' | 'ready_for_review') {
     if (!media) { setError('Choose and upload a video first.'); return; }
-    if (status === 'ready_for_review' && platforms.length === 0) { setError('Select at least one publishing destination before review.'); return; }
+    if (status === 'ready_for_review' && platforms.length === 0) { setError('Connect at least one plugin before review. Publishing goes to every connected plugin.'); return; }
     const actualDuration = duration ?? media.duration_seconds;
     if (status === 'ready_for_review') {
       const durationError = platforms.map((p) => validateMarketingDuration(p, actualDuration)).find(Boolean);
@@ -280,7 +285,7 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
 
   async function publishNow() {
     if (!draft || draft.status !== 'ready_for_review' || !media) { setError('Save the draft for review before publishing.'); return; }
-    if (!platforms.length) { setError('Select a destination first.'); return; }
+    if (!platforms.length) { setError('Connect a plugin first. Publishing goes to every connected plugin.'); return; }
     if (!remainingPlatforms.length) {
       setNotice('This draft has already been published to every selected destination. Choose New post to publish another video.');
       return;
@@ -407,12 +412,39 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
               {fileSize(size)} · {currentDuration ? `${currentDuration}s` : 'reading duration…'}
             </ThemedText>
           </View>
+          <StatusBadge
+            label={progress !== null ? `Uploading ${progress}%` : draft ? (draft.status === 'ready_for_review' ? 'Ready for review' : 'Saved as draft') : 'Uploaded · private'}
+            tone={progress !== null || draft?.status === 'ready_for_review' ? 'info' : 'success'}
+          />
           <ButtonRow>
             <Button label="Replace" size="sm" icon={RefreshIcon} disabled={busy} onPress={() => void chooseVideo()} />
             <Button label="Remove" size="sm" variant="dangerOutline" icon={TrashIcon} disabled={busy} onPress={reset} accessibilityLabel="Remove this video from the post" />
           </ButtonRow>
         </View>
       )}
+      {media && progress === null ? (
+        <View style={[styles.nextSteps, { borderColor: theme.border, backgroundColor: theme.surfaceRaised }]}>
+          <ThemedText type="smallBold">Next steps</ThemedText>
+          {[
+            { done: Boolean(title.trim() || caption.trim()), label: 'Add a title and caption in Caption & details.' },
+            {
+              done: platforms.length > 0,
+              label: platforms.length
+                ? `Publishes to ${platforms.map((p) => SOCIAL_LABELS[p]).join(', ')}.`
+                : 'Connect a plugin so the post has somewhere to go.',
+            },
+            { done: draft?.status === 'ready_for_review', label: 'Press Review post, check everything, then Publish.' },
+          ].map((step, index) => (
+            <View key={index} style={styles.nextStep}>
+              {step.done ? <CheckCircleIcon size={16} color={theme.success} /> : <CircleIcon size={16} color={theme.textSecondary} />}
+              <ThemedText type="caption" themeColor={step.done ? 'textSecondary' : 'text'} style={styles.nextStepText}>
+                {step.label}
+              </ThemedText>
+            </View>
+          ))}
+          {!platforms.length ? <Button label="Open Plugins" size="sm" icon={PlugIcon} onPress={() => router.push('/plugins')} /> : null}
+        </View>
+      ) : null}
       {progress !== null ? <ProgressBar value={progress / 100} label="Upload progress" /> : null}
       <ThemedText type="caption" themeColor="textSecondary">
         Large uploads can take 5–10 minutes depending on file size and connection — an estimate, not a guarantee. Keep this page open until the upload finishes; an interrupted upload must be restarted.
@@ -522,15 +554,17 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
 
   const destinations = (
     <Card>
-      <SectionHeader title="3. Publish settings" subtitle="Choose where to publish. Selecting a destination never posts by itself." />
+      <SectionHeader
+        title="3. Publish settings"
+        subtitle="This post goes to every connected plugin. Connections are managed on the Plugins page."
+      />
       <View>
         {SOCIAL_PLATFORMS.map((p, index) => {
           const connection = connections.find((c) => c.platform === p);
-          const active = selectedPlatforms.includes(p);
-          const destinationDisabled = p === 'youtube' && Boolean(connection?.connected) && connection?.publishing_enabled === false;
-          const disabledSelection = (destinationDisabled && !active) || !media;
+          const active = platforms.includes(p);
+          const publishingOff = Boolean(connection?.connected) && connection?.publishing_enabled === false;
           const status = connection?.connected
-            ? `Connected${connection.account_name ? ` · ${connection.account_name}` : ''}${destinationDisabled ? ' · publishing turned off in Integrations' : ''}`
+            ? `Connected${connection.account_name ? ` · ${connection.account_name}` : ''}${publishingOff ? ' · publishing turned off in Plugins' : ''}`
             : connection?.configured === false
               ? 'Server setup needed'
               : 'Not connected';
@@ -544,9 +578,9 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
                     {status}
                   </ThemedText>
                 </View>
-                <Switch value={active} onValueChange={() => togglePlatform(p)} disabled={disabledSelection} label={`Use ${SOCIAL_LABELS[p]} as a destination`} />
+                <StatusBadge label={active ? 'Will publish' : publishingOff ? 'Off' : 'Not connected'} tone={active ? 'success' : 'neutral'} />
               </View>
-              {active ? (
+              {active && media ? (
                 <View style={styles.destinationBody}>
                   <Field
                     label={`${SOCIAL_LABELS[p]} caption`}
@@ -560,22 +594,23 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
                       maxLength={MARKETING_CAPTION_LIMITS[p]}
                     />
                   </Field>
-                  {!connection?.connected ? (
-                    <Button
-                      label={connecting === p ? `Connecting ${SOCIAL_LABELS[p]}…` : `Connect ${SOCIAL_LABELS[p]}`}
-                      size="sm"
-                      variant="primary"
-                      loading={connecting === p}
-                      disabled={connection?.configured === false}
-                      onPress={() => void connect(p)}
-                    />
-                  ) : null}
+                </View>
+              ) : !connection?.connected ? (
+                <View style={styles.destinationBody}>
+                  <Button
+                    label={connecting === p ? `Connecting ${SOCIAL_LABELS[p]}…` : `Connect ${SOCIAL_LABELS[p]}`}
+                    size="sm"
+                    loading={connecting === p}
+                    disabled={connection?.configured === false}
+                    onPress={() => void connect(p)}
+                  />
                 </View>
               ) : null}
             </View>
           );
         })}
       </View>
+      <LinkButton label="Manage plugins" icon={PlugIcon} onPress={() => router.push('/plugins')} />
       <ButtonRow>
         <Button label={busy ? 'Saving…' : 'Save draft'} disabled={busy || !media} onPress={() => void save('draft')} />
         <Button label="Review post" variant="primary" disabled={busy || !media || platforms.length === 0} loading={busy} onPress={() => void save('ready_for_review')} />
@@ -645,10 +680,27 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
 
   const library = (
     <Card>
-      <SectionHeader title="Saved drafts & uploads" subtitle="Drafts stay private. Select one to keep working on it." />
-      {!drafts.length && !unsavedUploads.length ? (
-        <EmptyState icon={FilmIcon} title="No drafts yet" description="Upload a video and save it as a draft to see it here." compact />
-      ) : (
+      <SectionHeader
+        title={libraryView === 'drafts' ? 'Saved drafts' : 'Uploads'}
+        subtitle={libraryView === 'drafts' ? 'Drafts stay private. Select one to keep working on it.' : 'Videos uploaded but not saved in a draft yet.'}
+        action={
+          <Select
+            label="Show"
+            size="sm"
+            value={libraryView}
+            onChange={setLibraryView}
+            options={[
+              { value: 'drafts', label: `Saved drafts (${drafts.length})` },
+              { value: 'uploads', label: `Uploads (${unsavedUploads.length})` },
+            ]}
+          />
+        }
+      />
+      {libraryView === 'drafts' && !drafts.length ? (
+        <EmptyState icon={FilmIcon} title="No drafts yet" description="Upload a video and press Save draft to see it here." compact />
+      ) : libraryView === 'uploads' && !unsavedUploads.length ? (
+        <EmptyState icon={UploadIcon} title="No loose uploads" description="Every uploaded video is already in a draft." compact />
+      ) : libraryView === 'drafts' ? (
         <View>
           {drafts.map((item, index) => {
             const published = item.social_posts.filter((post) => post.status === 'posted');
@@ -669,17 +721,20 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
                 trailing={<StatusBadge label={label} tone={allPublished ? 'success' : item.status === 'ready_for_review' ? 'info' : 'neutral'} />}
                 onPress={() => editDraft(item)}
                 chevron={false}
-                divider={index < drafts.length - 1 || unsavedUploads.length > 0}
+                divider={index < drafts.length - 1}
               />
             );
           })}
+        </View>
+      ) : (
+        <View>
           {unsavedUploads.map((item, index) => (
             <ListRow
               key={item.id}
               title={item.filename}
-              subtitle={`${fileSize(item.size_bytes)} · uploaded ${new Date(item.created_at).toLocaleString()}`}
+              subtitle={`${fileSize(item.size_bytes)} · uploaded ${new Date(item.created_at).toLocaleString()} · open it to add a caption`}
               leading={<View style={[styles.libThumb, { backgroundColor: theme.surfaceRaised }]}><UploadIcon size={16} color={theme.textSecondary} /></View>}
-              trailing={<StatusBadge label="Uploaded" tone="neutral" />}
+              trailing={<StatusBadge label="Not in a draft" tone="neutral" />}
               onPress={() => void resumeUpload(item)}
               chevron={false}
               divider={index < unsavedUploads.length - 1}
@@ -704,7 +759,6 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
           {draft ? `Editing “${draft.title || filename || 'Untitled reel'}”` : media ? 'New post — not saved yet' : 'Start a new post'}
         </ThemedText>
         <ButtonRow>
-          <Button label="Ask Marketing AI" size="sm" icon={SparkIcon} onPress={() => router.setParams({ ai: '1', department: 'marketing' })} />
           <Button label="New post" size="sm" icon={PlusIcon} onPress={reset} />
         </ButtonRow>
       </View>
@@ -778,5 +832,8 @@ const styles = StyleSheet.create({
   destinationBody: { gap: 10, paddingLeft: 50 },
   results: { gap: 10 },
   result: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  nextSteps: { gap: 8, padding: 12, borderWidth: 1, borderRadius: Radius.control + 2 },
+  nextStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  nextStepText: { flex: 1 },
   libThumb: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 });

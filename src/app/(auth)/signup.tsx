@@ -20,10 +20,12 @@ import {
   googleSignInIsEnabled,
   signInWithApple,
   signInWithGoogle,
+  confirmationRedirect,
+  resendConfirmation,
 } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 
-type Busy = 'password' | 'google' | 'apple' | null;
+type Busy = 'password' | 'google' | 'apple' | 'resend' | null;
 
 export default function SignupScreen() {
   const [fullName, setFullName] = useState('');
@@ -32,6 +34,7 @@ export default function SignupScreen() {
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
@@ -51,9 +54,11 @@ export default function SignupScreen() {
     AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => setAppleAvailable(false));
   }, []);
 
-  // Email confirmation is disabled for this project, so a successful signup
-  // should return a session and route directly into the app. A missing session
-  // can also mean Supabase suppressed a duplicate signup to prevent enumeration.
+  // New accounts must confirm their email (a Supabase Auth setting), which is
+  // what stops made-up addresses getting in. Then signUp returns no session and
+  // the person is asked to open the link. If the setting is ever off, a session
+  // comes back and they go straight in. Supabase also returns no session for an
+  // address that already has an account, so the wording covers both.
   async function handleSignup() {
     setError(null);
     setInfo(null);
@@ -66,7 +71,7 @@ export default function SignupScreen() {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { data: { full_name: fullName.trim() } },
+        options: { data: { full_name: fullName.trim() }, emailRedirectTo: confirmationRedirect() },
       });
       if (signUpError) {
         setError(authErrorMessage(signUpError));
@@ -76,8 +81,9 @@ export default function SignupScreen() {
         router.replace('/(app)');
         return;
       }
+      setSentTo(email.trim());
       setInfo(
-        'Could not start your session. Try logging in, or reset your password if you already have an account.',
+        `We sent a confirmation link to ${email.trim()}. Open it to finish creating your account, then log in. Check spam if it is not there in a minute.`,
       );
     } catch {
       // signUp rejects (rather than returning an `error` field) when the request
@@ -85,6 +91,20 @@ export default function SignupScreen() {
       setError(
         'Could not reach the server. Check your connection and try again.',
       );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resend() {
+    if (!sentTo) return;
+    setError(null);
+    setBusy('resend');
+    try {
+      await resendConfirmation(sentTo);
+      setInfo(`Sent again to ${sentTo}. Open the newest email.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : authErrorMessage(null));
     } finally {
       setBusy(null);
     }
@@ -170,6 +190,11 @@ export default function SignupScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {info ? <Text style={styles.info}>{info}</Text> : null}
+        {sentTo ? (
+          <Pressable accessibilityRole="button" onPress={() => void resend()} disabled={busy !== null}>
+            <Text style={styles.footerLink}>{busy === 'resend' ? 'Sending…' : 'Send the confirmation email again'}</Text>
+          </Pressable>
+        ) : null}
 
         <GoldButton
           title="Create account"

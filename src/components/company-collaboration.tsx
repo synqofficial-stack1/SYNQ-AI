@@ -68,10 +68,12 @@ export function useCompanyCollaboration() {
 
   const refresh = useCallback(async () => {
     if (!organizationId) return;
-    const [people, chat, work] = await Promise.all([activeWorkspaceMembers(), loadWorkspaceChat(), loadWorkspaceTasks()]);
+    const [peopleRaw, chat, work] = await Promise.all([activeWorkspaceMembers(), loadWorkspaceChat(), loadWorkspaceTasks()]);
+    // The members RPC can return null (no rows); never let that reach .find.
+    const people = peopleRaw ?? [];
     setMembers(people);
-    setMessages(chat);
-    setTasks(work);
+    setMessages(chat ?? []);
+    setTasks(work ?? []);
     setLoaded(true);
     setAssignee((current) => current || people.find((person) => person.is_current_user)?.user_id || people[0]?.user_id || '');
   }, [organizationId]);

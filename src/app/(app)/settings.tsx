@@ -4,7 +4,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent }
 
 import { DeleteAccountPanel } from '@/components/delete-account-panel';
 import {
-  AlertIcon,
   BuildingIcon,
   ChevronRightIcon,
   CreditCardIcon,
@@ -12,6 +11,7 @@ import {
   HelpIcon,
   KeyIcon,
   LogOutIcon,
+  MessageIcon,
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
@@ -51,6 +51,7 @@ import {
   type AppearancePreference,
 } from '@/lib/appearance';
 import { authErrorMessage } from '@/lib/auth';
+import { FEEDBACK_MAX, loadMyFeedback, sendFeedback, type MyFeedback } from '@/lib/feedback';
 import { supabase } from '@/lib/supabase';
 import { openWhatsAppSupport, SUPPORT_PHONE } from '@/lib/support';
 
@@ -158,7 +159,10 @@ export default function SettingsScreen() {
 
   const [signOutAllOpen, setSignOutAllOpen] = useState(false);
   const [signOutBusy, setSignOutBusy] = useState(false);
-  const [alertBusy, setAlertBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [myFeedback, setMyFeedback] = useState<MyFeedback[]>([]);
 
   const userId = session?.user.id;
   const email = session?.user.email ?? '';
@@ -199,6 +203,18 @@ export default function SettingsScreen() {
       .catch((cause: unknown) => {
         if (live) setUsageError(cause instanceof Error ? cause.message : 'Could not load your credits.');
       });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    loadMyFeedback()
+      .then((next) => {
+        if (live) setMyFeedback(next);
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -245,7 +261,7 @@ export default function SettingsScreen() {
   async function chooseTheme(next: AppearancePreference) {
     if (next === appearance) return;
     const saved = await setAppearancePreference(next);
-    if (!saved) showToast('Theme changed for now, but this device could not remember it.', 'info');
+    if (!saved) showToast('Theme changed for now, but it could not be saved. Try again in a moment.', 'info');
   }
 
   function closePassword() {
@@ -290,11 +306,20 @@ export default function SettingsScreen() {
     // On success the session listener sends this device to the sign-in screen.
   }
 
-  async function sendFailureAlert() {
-    setAlertBusy(true);
-    const { error } = await supabase.functions.invoke('request-ceo-alert', { body: {} });
-    setAlertBusy(false);
-    showToast(error ? 'Could not send the alert. Please try again later.' : 'Thanks — the Synq team has been alerted.', error ? 'danger' : 'success');
+  async function submitFeedback() {
+    if (feedbackBusy || !feedback.trim()) return;
+    setFeedbackBusy(true);
+    setFeedbackError('');
+    try {
+      await sendFeedback(feedback);
+      setFeedback('');
+      showToast('Thanks — your feedback reached the Synq team.', 'success');
+      setMyFeedback(await loadMyFeedback().catch(() => myFeedback));
+    } catch (cause) {
+      setFeedbackError(cause instanceof Error ? cause.message : 'Could not send your feedback. Please try again.');
+    } finally {
+      setFeedbackBusy(false);
+    }
   }
 
   const contactSupport = async () => {
@@ -412,7 +437,7 @@ export default function SettingsScreen() {
   const appearanceCard = (
     <View key="appearance" onLayout={(event) => onCardLayout('appearance', event)}>
       <Card>
-        <SectionHeader title="Appearance" subtitle="Choose how Synq looks for you. Saved on this device." />
+        <SectionHeader title="Appearance" subtitle="Choose how Synq looks for you. Saved to your account, so it stays after you sign in again." />
         <View style={styles.themes} accessibilityRole="radiogroup" accessibilityLabel="Theme">
           {THEMES.map((option) => {
             const selected = appearance === option.value;
@@ -488,10 +513,49 @@ export default function SettingsScreen() {
   const helpCard = (
     <View key="help" onLayout={(event) => onCardLayout('help', event)}>
       <Card>
-        <SectionHeader title="Help & About" subtitle="Get help, or tell us when something breaks." />
+        <SectionHeader title="Help & About" subtitle="Get help, or tell us what to fix or build next." />
+        <Field label="Send feedback" helper="Goes straight to the Synq team. We'll mark it when we're looking into it." count={{ value: feedback.length, max: FEEDBACK_MAX }}>
+          <TextField
+            accessibilityLabel="Your feedback"
+            value={feedback}
+            onChangeText={setFeedback}
+            maxLength={FEEDBACK_MAX}
+            multiline
+            placeholder="Something broke, something's confusing, or an idea…"
+          />
+        </Field>
+        {feedbackError ? <InlineAlert tone="danger" message={feedbackError} /> : null}
+        <View style={styles.cardFooter}>
+          <Button
+            label="Send feedback"
+            icon={MessageIcon}
+            onPress={() => void submitFeedback()}
+            loading={feedbackBusy}
+            disabled={!feedback.trim()}
+          />
+        </View>
+        {myFeedback.length ? (
+          <View style={[styles.list, { borderColor: theme.border }]}>
+            {myFeedback.map((item, index) => (
+              <View
+                key={item.id}
+                style={[styles.feedbackRow, index < myFeedback.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.border }]}
+              >
+                <View style={styles.feedbackText}>
+                  <ThemedText type="small" numberOfLines={3}>
+                    {item.body}
+                  </ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </ThemedText>
+                </View>
+                <StatusBadge label={item.acknowledgedAt ? 'Looking into it' : 'Sent'} tone={item.acknowledgedAt ? 'success' : 'neutral'} />
+              </View>
+            ))}
+          </View>
+        ) : null}
         <View style={[styles.list, { borderColor: theme.border }]}>
           <ActionRow icon={HelpIcon} label={`Chat with support on WhatsApp · ${SUPPORT_PHONE}`} onPress={() => void contactSupport()} />
-          <ActionRow icon={AlertIcon} label={alertBusy ? 'Sending alert…' : 'Report a problem to the Synq team'} onPress={() => void (alertBusy ? undefined : sendFailureAlert())} />
           <ActionRow icon={ExternalLinkIcon} label="Privacy policy" onPress={() => router.push('/privacy')} divider={false} />
         </View>
         <ThemedText type="caption" themeColor="textSecondary">
@@ -648,6 +712,8 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   list: { borderWidth: 1, borderRadius: Radius.control + 2, overflow: 'hidden' },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, minHeight: 48 },
+  feedbackRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  feedbackText: { flex: 1, minWidth: 0, gap: 2 },
   actionLabel: { flex: 1, fontSize: 14, fontWeight: '500' },
   themes: { flexDirection: 'row', gap: 10 },
   themeOption: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14, borderRadius: Radius.control + 2 },

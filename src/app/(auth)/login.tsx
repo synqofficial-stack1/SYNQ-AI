@@ -10,17 +10,19 @@ import { AuthCard } from '@/components/auth-card';
 import { AuthField } from '@/components/auth-field';
 import { EyeIcon, EyeOffIcon, LockIcon, MailIcon } from '@/components/auth-icons';
 import { AccentColors } from '@/constants/theme';
-import { authErrorMessage, googleSignInIsEnabled, signInWithApple, signInWithGoogle } from '@/lib/auth';
+import { authErrorMessage, googleSignInIsEnabled, resendConfirmation, signInWithApple, signInWithGoogle } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 
 /** Which button is busy. Only one sign-in can be in flight at a time. */
-type Busy = 'password' | 'google' | 'apple' | null;
+type Busy = 'password' | 'google' | 'apple' | 'resend' | null;
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
@@ -42,6 +44,8 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     setError(null);
+    setNotice(null);
+    setUnconfirmed(false);
     setBusy('password');
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -50,6 +54,7 @@ export default function LoginScreen() {
       });
       if (signInError) {
         setError(authErrorMessage(signInError));
+        setUnconfirmed(/Email not confirmed/i.test(signInError.message));
         return;
       }
       router.replace('/(app)');
@@ -57,6 +62,19 @@ export default function LoginScreen() {
       // signInWithPassword rejects (rather than returning an `error` field) when
       // the request never reaches Supabase at all, e.g. no internet connection.
       setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resend() {
+    setError(null);
+    setBusy('resend');
+    try {
+      await resendConfirmation(email);
+      setNotice(`Sent a new confirmation link to ${email.trim()}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : authErrorMessage(null));
     } finally {
       setBusy(null);
     }
@@ -135,6 +153,12 @@ export default function LoginScreen() {
         </Link>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+        {unconfirmed ? (
+          <Pressable accessibilityRole="button" onPress={() => void resend()} disabled={busy !== null}>
+            <Text style={styles.footerLink}>{busy === 'resend' ? 'Sending…' : 'Send the confirmation email again'}</Text>
+          </Pressable>
+        ) : null}
 
         <GoldButton
           title="Log In"
@@ -160,6 +184,7 @@ const styles = StyleSheet.create({
   forgotRow: { alignSelf: 'flex-end', marginTop: -4 },
   forgot: { color: 'rgba(255, 255, 255, 0.85)', fontSize: 13, fontWeight: '600' },
   error: { color: AccentColors.error, fontSize: 13, lineHeight: 19 },
+  notice: { color: AccentColors.primaryLight, fontSize: 13, lineHeight: 19 },
   footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 2 },
   footerText: { color: 'rgba(255, 255, 255, 0.72)', fontSize: 14 },
   footerLink: { color: AccentColors.primaryLight, fontSize: 14, fontWeight: '600' },

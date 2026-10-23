@@ -17,6 +17,8 @@
 //   - No message text, task inputs or outputs, video prompts, call transcripts
 //     or notes. The console reports *that* things happened, not what was said.
 //     Owning the platform is not a reason to read everyone's drafts.
+//     The one exception is `feedback_messages`: people write those *to* the
+//     Synq team from Settings > Help, so their text is returned here.
 //   - No secret values. Integration health reports whether a key is present,
 //     never any part of the key itself.
 //   - Lead phone numbers are masked to their last two digits.
@@ -631,29 +633,45 @@ async function userDetail(db: SupabaseClient, userId: string) {
 }
 
 /**
- * Problem reports people sent from Settings, newest first, for the admin
- * notification bell. Only who reported and when: the report carries no text.
+ * Feedback people sent from Settings > Help, newest first, for the admin
+ * notification bell. These were written to the Synq team, so the text is
+ * included (see the note at the top of this file).
  */
-async function problemReports(db: SupabaseClient) {
+async function feedbackMessages(db: SupabaseClient) {
   const [{ data, error }, { data: userList }] = await Promise.all([
     db
-      .from('events')
-      .select('id, user_id, created_at')
-      .eq('kind', 'settings.failure_alert_requested')
+      .from('feedback_messages')
+      .select('id, user_id, body, created_at, acknowledged_at')
       .order('created_at', { ascending: false })
-      .limit(20),
+      .limit(30),
     db.auth.admin.listUsers({ page: 1, perPage: 1000 }),
   ]);
   if (error) throw new Error(error.message);
   const emails = new Map((userList?.users ?? []).map((user) => [user.id, user.email ?? null]));
   return {
-    reports: (data ?? []).map((row) => ({
+    feedback: (data ?? []).map((row) => ({
       id: String(row.id),
-      userId: row.user_id ? String(row.user_id) : null,
-      email: row.user_id ? (emails.get(String(row.user_id)) ?? null) : null,
+      email: emails.get(String(row.user_id)) ?? null,
+      body: String(row.body),
       createdAt: String(row.created_at),
+      acknowledgedAt: row.acknowledged_at ? String(row.acknowledged_at) : null,
     })),
   };
+}
+
+/** "Looking into it": the sender sees this next to their message. */
+async function acknowledgeFeedback(db: SupabaseClient, id: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Unknown feedback message.');
+  const { data, error } = await db
+    .from('feedback_messages')
+    .update({ acknowledged_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('acknowledged_at', null)
+    .select('acknowledged_at')
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  // Already acknowledged (maybe by another admin) is not an error.
+  return { acknowledgedAt: data?.acknowledged_at ? String(data.acknowledged_at) : null };
 }
 
 /**
@@ -714,7 +732,7 @@ Deno.serve(async (req) => {
     return json({ error: 'This account is not authorized for the CEO Control Center.' }, 403);
   }
 
-  let body: { action?: string; query?: string; limit?: number; severity?: string; user_id?: string };
+  let body: { action?: string; query?: string; limit?: number; severity?: string; user_id?: string; feedback_id?: string };
   try {
     body = await req.json();
   } catch {
@@ -730,8 +748,10 @@ Deno.serve(async (req) => {
       }
       case 'feed':
         return json(await feed(db, body.limit ?? 40, body.severity ?? null));
-      case 'reports':
-        return json(await problemReports(db));
+      case 'feedback':
+        return json(await feedbackMessages(db));
+      case 'acknowledge':
+        return json(await acknowledgeFeedback(db, String(body.feedback_id ?? '')));
       case 'search':
         return json(await search(db, String(body.query ?? '')));
       case 'user':

@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { CalendarIcon } from '@/components/icons';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { Avatar, Button, ButtonRow, Card, EmptyState, Field, IconTile, InlineAlert, ListRow, SectionHeader, Split, transition } from '@/components/ui';
+import { Avatar, Button, ButtonRow, Card, EmptyState, Field, IconTile, InlineAlert, ListRow, SectionHeader, Select, Split, transition } from '@/components/ui';
 import { DataColors, Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
@@ -40,6 +40,7 @@ export function SalesMeetings({ legacyMeetings = [], onEditLegacy }: { legacyMee
   const [editingSelected, setEditingSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
   const pendingMeetingId = useRef<string | null>(null);
   const pendingMeetingKey = useRef('');
   const owner = identity?.membership?.role === 'owner';
@@ -171,19 +172,34 @@ export function SalesMeetings({ legacyMeetings = [], onEditLegacy }: { legacyMee
       main={
         <>
           <Card>
-            <SectionHeader title="Upcoming meetings" subtitle="Meetings you organise or attend." />
-            {!upcoming.length ? (
-              <EmptyState icon={CalendarIcon} title="No upcoming meetings" description="Plan one with the form; invited teammates will see it here too." compact />
+            <SectionHeader
+              title="Meetings"
+              subtitle="Meetings you organise or attend."
+              action={
+                <Select
+                  label="Show meetings"
+                  size="sm"
+                  value={when}
+                  onChange={setWhen}
+                  options={[
+                    { value: 'upcoming', label: `Upcoming (${upcoming.length})` },
+                    { value: 'past', label: `Past (${past.length})` },
+                  ]}
+                />
+              }
+            />
+            {when === 'upcoming' ? (
+              !upcoming.length ? (
+                <EmptyState icon={CalendarIcon} title="No upcoming meetings" description="Plan one with the form; invited teammates will see it here too." compact />
+              ) : (
+                <View>{upcoming.map(meetingRow)}</View>
+              )
+            ) : !past.length ? (
+              <EmptyState icon={CalendarIcon} title="No past meetings" description="Meetings move here once their start time has passed." compact />
             ) : (
-              <View>{upcoming.map(meetingRow)}</View>
+              <View>{past.slice().reverse().map(meetingRow)}</View>
             )}
           </Card>
-          {past.length ? (
-            <Card>
-              <SectionHeader title="Past meetings" />
-              <View>{past.slice().reverse().map(meetingRow)}</View>
-            </Card>
-          ) : null}
           {legacyMeetings.length ? (
             <Card>
               <SectionHeader

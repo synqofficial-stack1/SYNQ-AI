@@ -153,8 +153,11 @@ assets/images/             icons, splash, synq-logo.jpg
   calls `updateUser({ password })`.
 - Route guards: `(app)/_layout.tsx` redirects to login without a session; `(auth)/_layout.tsx`
   redirects to the app with one; `src/app/index.tsx` picks between them.
-- Email confirmation is **off** (verified 2026-09-21: `/auth/v1/settings` reports
-  `mailer_autoconfirm: true`). It is a dashboard setting, so re-check rather than assume.
+- Email confirmation: the app is built for it **on** (signup shows "check your inbox" with a resend
+  link; login offers a resend for unconfirmed accounts), which is what keeps made-up addresses out.
+  The live dashboard setting was still **off** on 2026-10-23 (`mailer_autoconfirm: true`), so until
+  someone enables Authentication → Email → "Confirm email", signup still lets anyone straight in.
+  Supabase's built-in mailer only delivers to team addresses, so real customers also need custom SMTP.
 
 ## 6. Supabase architecture
 
@@ -193,7 +196,8 @@ Added since (see the migrations and `docs/`): `organizations`, `organization_mem
 `outreach_messages`, `outreach_mailboxes`, `outreach_oauth_states`, `outreach_suppressions`,
 `ai_credit_accounts`, `ai_credit_debits`, `generated_images`, `user_onboarding_profiles`,
 `onboarding_events`, `social_connections`, `social_posts`, `oauth_states`, `marketing_media`,
-`marketing_post_drafts`, `vapi_calls`. `docs/database.md` predates most of these.
+`marketing_post_drafts`, `vapi_calls`, `feedback_messages`. `docs/database.md` predates most of
+these.
 
 Relationships that matter:
 
@@ -259,20 +263,28 @@ Redux/Zustand/React Query/Context store — do not add one without asking.
 
 ## 12. Department, dashboard and feature architecture
 
-- **Dashboard** (`(app)/index.tsx`): greeting, metrics, a 14-day usage bar chart, departments list,
-  recent activity, quick actions, and an assistant chat. All numbers come from the user's own rows
-  via `src/lib/workspace.ts` — **there is no analytics service, and none of it is demo data**.
-- **Sales** (`(app)/sales.tsx`, updated 2026-10-21): opens the shared company pipeline
-  (`components/sales-workspace.tsx`) with tabs for Next actions, Meetings, Quotations, Targets and
-  Email duties; **Email duty** opens the Gmail outreach workspace
-  (`components/email-outreach.tsx`). See `docs/sales-workspace.md` and `docs/email-outreach.md`.
+- **Dashboard** (`(app)/index.tsx`): greeting with one **Create** menu (every quick action lives
+  there), metrics, a usage chart, departments, recent activity, this month's **Targets**, tasks and
+  an assistant chat. All numbers come from the user's own rows via `src/lib/workspace.ts` and
+  `src/lib/sales-workspace.ts` — **there is no analytics service, and none of it is demo data**.
+- **Sales** (`(app)/sales.tsx`, updated 2026-10-23): `components/sales-workspace.tsx` with
+  Overview (KPIs, activity, upcoming meetings, Sales AI, calendar, targets — the deal pipeline board
+  was removed), Meetings (an Upcoming/Past dropdown), Targets and Email duties
+  (`components/email-outreach.tsx`). The header has **Send email** (`components/send-email.tsx`:
+  one email to one person from the connected Gmail via `email-outreach` `send_one`, which checks
+  opt-outs, caps 50 a day and logs `email.direct_sent` without content) and **Ask Synq AI**.
+  See `docs/sales-workspace.md` and `docs/email-outreach.md`. Gmail sending needs the `GMAIL_*`
+  secrets and a connected mailbox; on 2026-10-23 no mailbox had ever been connected.
   Google Maps discovery and whole-list calling are still not reachable from the UI.
 - **Sales sub-pages**: `/cold-call` now **redirects to Sales** (old call records are kept),
   `/follow-ups` (callbacks due), `/import-leads` (CSV/spreadsheet import).
-- **Marketing** (`(app)/marketing.tsx`): a `ChatPanel` with `kind="campaign"` and video
-  generation via fal. Social publishing code is present again (`/plugins`, `social-auth`,
-  `social-post`, `marketing_media`, `marketing_post_drafts`), but whether its OAuth secrets are set
-  live is **Unknown / needs verification**.
+- **Marketing** (`(app)/marketing.tsx`): **Ask Marketing AI** plus the reel publisher
+  (`components/marketing-publisher.tsx`). A post goes to **every connected plugin whose publishing
+  is on**; the Publish settings list is view-only and connections are managed on `/plugins`.
+  Uploads show their status and next steps; the library switches between Saved drafts and Uploads.
+  Whether the social OAuth secrets are set live is **Unknown / needs verification**.
+- **Theme**: kept on the device and on the account (`profiles.appearance`), applied at every
+  sign-in by `syncAppearanceWithAccount` in `src/lib/appearance.ts`.
 - **Plans** (`(app)/upgrade.tsx`): hardcoded pricing tiers. The screen itself states there is no
   payment provider. **Not a billing system.**
 - **CEO Control Center** (`(app)/ceo.tsx`, route `/ceo`): the whole platform for the accounts in
@@ -283,8 +295,10 @@ Redux/Zustand/React Query/Context store — do not add one without asking.
   `admin-console` function, which 403s a signed-in non-admin.
 - **Automations / notifications / settings**: mostly not implemented. The only scheduler is the
   `pg_cron` job `synq-email-replies` (every minute) for outreach. Webhook receivers: `call-result`
-  and `vapi-call-result`. The sidebar has a Settings entry, but there is no settings feature. The
-  only notification is the in-app pending-member banner for company owners.
+  and `vapi-call-result`. Settings (`/settings`, opened from the gear beside the user's name) has
+  profile, security, appearance, credits, help and account deletion. The notification bell shows
+  join requests, admins' incoming feedback (with a "Looking into it" button) and, for the sender,
+  when their feedback was acknowledged. It is polled every minute, not pushed.
 
 ## 13. Voice-calling pipeline (the most safety-sensitive part)
 
@@ -394,7 +408,8 @@ use the Supabase MCP tools instead.
    checked `app_admins` with the service-role key. Never add a client-side admin check that grants
    anything, never widen an RLS policy to "admins can see everything" on a table the app reads,
    and never return message text, prompts, transcripts or secret values to that console — it
-   reports activity, not content.
+   reports activity, not content. The one exception is `feedback_messages`, which people write
+   *to* the Synq team from Settings > Help; admins read them in the notification bell.
 
 ## 18. Coding conventions
 

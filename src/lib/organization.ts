@@ -48,15 +48,16 @@ export const setupWorkspace = (name: string, company: string, owner: boolean) =>
     p_company: company,
     p_owner: owner,
   });
-export const organizationPeople = () =>
-  rpc<OrganizationPerson[]>('organization_people');
+export const organizationPeople = async () =>
+  (await rpc<OrganizationPerson[] | null>('organization_people')) ?? [];
 export const reviewOrganizationMember = (
   userId: string,
   decision: 'approve' | 'reject' | 'remove',
 ) =>
   rpc('review_organization_member', { p_user: userId, p_decision: decision });
 
-export const activeWorkspaceMembers = () => rpc<WorkspaceMember[]>('organization_active_members');
+export const activeWorkspaceMembers = async () =>
+  (await rpc<WorkspaceMember[] | null>('organization_active_members')) ?? [];
 
 export async function loadWorkspaceChat() {
   const { data, error } = await supabase.from('organization_chat_messages')
