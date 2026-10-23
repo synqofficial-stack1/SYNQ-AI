@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
@@ -20,6 +20,10 @@ function AppearanceSync() {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const palette = Colors[colorScheme];
+  const pathname = usePathname();
+  // The sign-in screens are always dark, whatever the theme. Browser autofill
+  // paints the field's text with this colour, so it must be white there.
+  const onSignInScreen = /^\/(login|signup|forgot-password|reset-password)(\/|$)/.test(pathname);
 
   useEffect(() => {
     void loadAppearancePreference();
@@ -31,9 +35,9 @@ export default function RootLayout() {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     const root = document.documentElement;
     root.style.colorScheme = colorScheme;
-    root.style.setProperty('--synq-autofill-text', palette.text);
+    root.style.setProperty('--synq-autofill-text', onSignInScreen ? '#ffffff' : palette.text);
     document.body.style.backgroundColor = palette.background;
-  }, [colorScheme, palette]);
+  }, [colorScheme, palette, onSignInScreen]);
 
   const base = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   return (
