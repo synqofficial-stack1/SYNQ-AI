@@ -5,8 +5,8 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { AIWorkspace } from '@/components/ai-workspace';
 import {
-  AlertIcon,
   BellIcon,
+  CheckCircleIcon,
   BuildingIcon,
   CalendarIcon,
   ChartIcon,
@@ -18,6 +18,7 @@ import {
   LogOutIcon,
   MailIcon,
   MegaphoneIcon,
+  MessageIcon,
   SparkIcon,
   TargetIcon,
   UserPlusIcon,
@@ -28,12 +29,13 @@ import { ModalSheet } from '@/components/modal-sheet';
 import { Sidebar } from '@/components/sidebar';
 import { ThemedText } from '@/components/themed-text';
 import { TopBar } from '@/components/top-bar';
-import { Button, EmptyState, IconTile, Popover, SearchInput, ToastHost, transition, useBreakpoint } from '@/components/ui';
+import { Button, EmptyState, IconTile, Popover, SearchInput, showToast, ToastHost, transition, useBreakpoint } from '@/components/ui';
 import { DataColors, Radius, Spacing } from '@/constants/theme';
 import { useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
-import { ago, isAdmin, loadProblemReports, type ProblemReport } from '@/lib/admin';
+import { acknowledgeFeedback, ago, isAdmin, loadFeedback, type FeedbackMessage } from '@/lib/admin';
+import { loadMyFeedback, type MyFeedback } from '@/lib/feedback';
 import { supabase } from '@/lib/supabase';
 
 const TITLES: Record<string, string> = {
@@ -88,9 +90,13 @@ const DESTINATIONS: Destination[] = [
 ];
 
 const COLLAPSE_KEY = 'synq-sidebar-collapsed';
-/** Newest problem report this admin has seen; anything newer lights the bell. */
-const REPORTS_SEEN_KEY = 'synq-problem-reports-seen';
-const REPORTS_POLL_MS = 60_000;
+/**
+ * Newest feedback timestamp this person has seen in the bell: a message sent
+ * (for admins) or a "Looking into it" on their own feedback. Anything newer
+ * lights the bell. Server timestamps on both sides, so device clocks don't matter.
+ */
+const FEEDBACK_SEEN_KEY = 'synq-feedback-seen';
+const FEEDBACK_POLL_MS = 60_000;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const theme = useTheme();
@@ -141,43 +147,73 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Problem reports for the platform admins. The bell is the only place they
-  // surface, so poll while the app is open; the admin-console function
-  // refuses anyone who is not in app_admins, and isAdmin() only decides
-  // whether to ask.
-  const [reports, setReports] = useState<ProblemReport[]>([]);
-  const [reportsSeen, setReportsSeen] = useState<string | null>(null);
+  // Feedback, polled while the app is open. Admins get everyone's messages
+  // through admin-console (which refuses anyone not in app_admins; isAdmin()
+  // only decides whether to ask). Everyone gets their own, so they hear when
+  // the team marks one "Looking into it".
+  const [inbox, setInbox] = useState<FeedbackMessage[]>([]);
+  const [mine, setMine] = useState<MyFeedback[]>([]);
+  const [feedbackSeen, setFeedbackSeen] = useState<string | null>(null);
+  const [acknowledging, setAcknowledging] = useState<string | null>(null);
+  const userId = session?.user.id;
   useEffect(() => {
+    if (!userId) return;
     let live = true;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    AsyncStorage.getItem(REPORTS_SEEN_KEY)
+    let admin = false;
+    AsyncStorage.getItem(FEEDBACK_SEEN_KEY)
       .then((seen) => {
-        if (live) setReportsSeen(seen);
+        if (live) setFeedbackSeen(seen);
       })
       .catch(() => {});
-    isAdmin().then((admin) => {
-      if (!live || !admin) return;
-      const load = () =>
-        loadProblemReports()
-          .then(({ reports: next }) => {
-            if (live) setReports(next);
+    const load = () => {
+      loadMyFeedback()
+        .then((next) => {
+          if (live) setMine(next);
+        })
+        .catch(() => {});
+      if (admin) {
+        loadFeedback()
+          .then(({ feedback }) => {
+            if (live) setInbox(feedback);
           })
           .catch(() => {});
-      load();
-      timer = setInterval(load, REPORTS_POLL_MS);
+      }
+    };
+    const timer = setInterval(load, FEEDBACK_POLL_MS);
+    isAdmin().then((yes) => {
+      admin = yes;
+      if (live) load();
     });
     return () => {
       live = false;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
-  }, []);
-  const unreadReports = reports.filter((report) => !reportsSeen || report.createdAt > reportsSeen).length;
+  }, [userId]);
+  const acknowledged = mine.filter((item): item is MyFeedback & { acknowledgedAt: string } => Boolean(item.acknowledgedAt));
+  const isNew = (stamp: string) => !feedbackSeen || stamp > feedbackSeen;
+  const unreadFeedback =
+    inbox.filter((item) => isNew(item.createdAt)).length + acknowledged.filter((item) => isNew(item.acknowledgedAt)).length;
 
   const openNotifications = () => {
     setNotificationsOpen(true);
-    if (reports[0]) {
-      setReportsSeen(reports[0].createdAt);
-      AsyncStorage.setItem(REPORTS_SEEN_KEY, reports[0].createdAt).catch(() => {});
+    const latest = [...inbox.map((item) => item.createdAt), ...acknowledged.map((item) => item.acknowledgedAt)].sort().pop();
+    if (latest && isNew(latest)) {
+      setFeedbackSeen(latest);
+      AsyncStorage.setItem(FEEDBACK_SEEN_KEY, latest).catch(() => {});
+    }
+  };
+
+  const markLookingIntoIt = async (id: string) => {
+    setAcknowledging(id);
+    try {
+      const { acknowledgedAt } = await acknowledgeFeedback(id);
+      const stamp = acknowledgedAt ?? new Date().toISOString();
+      setInbox((items) => items.map((item) => (item.id === id ? { ...item, acknowledgedAt: item.acknowledgedAt ?? stamp } : item)));
+      showToast('Marked "Looking into it". They will see it next to their message.', 'success');
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : 'Could not update that feedback.', 'danger');
+    } finally {
+      setAcknowledging(null);
     }
   };
 
@@ -248,7 +284,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onOpenSearch={openSearch}
           onOpenAssistant={openAI}
           onOpenNotifications={openNotifications}
-          hasNotifications={pending > 0 || unreadReports > 0}
+          hasNotifications={pending > 0 || unreadFeedback > 0}
           notificationsAnchor={notificationsAnchor}
           userLabel={userName}
           menuOpen={userMenuOpen}
@@ -342,34 +378,74 @@ export function AppShell({ children }: { children: ReactNode }) {
         visible={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
         align="right"
-        width={340}
+        width={380}
         label="Notifications"
       >
         <View style={styles.menuHead}>
           <ThemedText type="cardTitle">Notifications</ThemedText>
         </View>
-        {reports.length ? (
+        <ScrollView style={styles.notificationList}>
+        {inbox.length ? (
           <View>
             <ThemedText type="caption" themeColor="textSecondary" style={styles.menuSection}>
-              Problem reports{unreadReports ? ` · ${unreadReports} new` : ''}
+              Feedback{inbox.some((item) => isNew(item.createdAt)) ? ` · ${inbox.filter((item) => isNew(item.createdAt)).length} new` : ''}
             </ThemedText>
-            {reports.slice(0, 5).map((report) => (
+            {inbox.slice(0, 8).map((item) => (
+              <View key={item.id} style={[styles.menuItem, styles.feedbackItem]}>
+                <IconTile icon={MessageIcon} color={DataColors.sales} size={34} />
+                <View style={styles.resultText}>
+                  <ThemedText type="smallBold" numberOfLines={1}>
+                    {item.email ?? 'A deleted account'}
+                  </ThemedText>
+                  <ThemedText type="small" numberOfLines={4}>
+                    {item.body}
+                  </ThemedText>
+                  <View style={styles.feedbackMeta}>
+                    <ThemedText type="caption" themeColor="textSecondary">
+                      {ago(item.createdAt)}
+                    </ThemedText>
+                    {item.acknowledgedAt ? (
+                      <View style={styles.feedbackDone}>
+                        <CheckCircleIcon size={14} color={theme.success} />
+                        <ThemedText type="caption" themeColor="textSecondary">
+                          Looking into it
+                        </ThemedText>
+                      </View>
+                    ) : (
+                      <Button
+                        label="Looking into it"
+                        size="sm"
+                        variant="secondary"
+                        loading={acknowledging === item.id}
+                        onPress={() => void markLookingIntoIt(item.id)}
+                      />
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {acknowledged.length ? (
+          <View>
+            <ThemedText type="caption" themeColor="textSecondary" style={styles.menuSection}>
+              Your feedback
+            </ThemedText>
+            {acknowledged.slice(0, 3).map((item) => (
               <Pressable
-                key={report.id}
+                key={item.id}
                 accessibilityRole="button"
                 onPress={() => {
                   setNotificationsOpen(false);
-                  router.push('/ceo');
+                  router.push('/settings?section=help' as Parameters<typeof router.push>[0]);
                 }}
                 style={({ hovered }) => [styles.menuItem, hovered && { backgroundColor: theme.surfaceRaised }]}
               >
-                <IconTile icon={AlertIcon} color="#DC2626" size={34} />
+                <IconTile icon={CheckCircleIcon} color={theme.success} size={34} />
                 <View style={styles.resultText}>
-                  <ThemedText type="smallBold" numberOfLines={1}>
-                    {report.email ?? 'A deleted account'} reported a problem
-                  </ThemedText>
-                  <ThemedText type="caption" themeColor="textSecondary">
-                    {ago(report.createdAt)} · open the Control Center
+                  <ThemedText type="smallBold">The Synq team is looking into it</ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary" numberOfLines={2}>
+                    “{item.body}” · {ago(item.acknowledgedAt)}
                   </ThemedText>
                 </View>
               </Pressable>
@@ -395,11 +471,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               </ThemedText>
             </View>
           </Pressable>
-        ) : !reports.length ? (
+        ) : !inbox.length && !acknowledged.length ? (
           <View style={styles.menuEmpty}>
-            <EmptyState icon={BellIcon} title="You're all caught up" description="Join requests for your company show up here." compact />
+            <EmptyState
+              icon={BellIcon}
+              title="You're all caught up"
+              description="Join requests and replies to your feedback show up here."
+              compact
+            />
           </View>
         ) : null}
+        </ScrollView>
       </Popover>
 
       <Popover
@@ -493,4 +575,8 @@ const styles = StyleSheet.create({
   menuDivider: { height: 1, marginVertical: 4 },
   menuEmpty: { padding: 6 },
   menuSection: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 2 },
+  notificationList: { maxHeight: 460 },
+  feedbackItem: { alignItems: 'flex-start' },
+  feedbackMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6 },
+  feedbackDone: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 });

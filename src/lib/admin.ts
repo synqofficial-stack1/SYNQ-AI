@@ -211,11 +211,18 @@ export const searchPlatform = (query: string) =>
 
 export const loadUserDetail = (userId: string) => call<UserDetail>({ action: 'user', user_id: userId });
 
-/** A problem report someone sent from Settings: who and when, never any text. */
-export type ProblemReport = { id: string; userId: string | null; email: string | null; createdAt: string };
+/**
+ * Feedback someone wrote to the Synq team from Settings > Help. The only text
+ * the console ever returns, because it was addressed to the team.
+ */
+export type FeedbackMessage = { id: string; email: string | null; body: string; createdAt: string; acknowledgedAt: string | null };
 
-/** The latest problem reports, for the admin notification bell. */
-export const loadProblemReports = () => call<{ reports: ProblemReport[] }>({ action: 'reports' });
+/** The latest feedback, for the admin notification bell. */
+export const loadFeedback = () => call<{ feedback: FeedbackMessage[] }>({ action: 'feedback' });
+
+/** Tells the sender the team is "Looking into it". */
+export const acknowledgeFeedback = (id: string) =>
+  call<{ acknowledgedAt: string | null }>({ action: 'acknowledge', feedback_id: id });
 
 /** "3 min ago". Shared shape with the dashboard's, kept local to avoid a cycle. */
 export function ago(iso: string | null): string {

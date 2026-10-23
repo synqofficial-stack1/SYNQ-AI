@@ -193,7 +193,8 @@ Added since (see the migrations and `docs/`): `organizations`, `organization_mem
 `outreach_messages`, `outreach_mailboxes`, `outreach_oauth_states`, `outreach_suppressions`,
 `ai_credit_accounts`, `ai_credit_debits`, `generated_images`, `user_onboarding_profiles`,
 `onboarding_events`, `social_connections`, `social_posts`, `oauth_states`, `marketing_media`,
-`marketing_post_drafts`, `vapi_calls`. `docs/database.md` predates most of these.
+`marketing_post_drafts`, `vapi_calls`, `feedback_messages`. `docs/database.md` predates most of
+these.
 
 Relationships that matter:
 
@@ -283,8 +284,10 @@ Redux/Zustand/React Query/Context store — do not add one without asking.
   `admin-console` function, which 403s a signed-in non-admin.
 - **Automations / notifications / settings**: mostly not implemented. The only scheduler is the
   `pg_cron` job `synq-email-replies` (every minute) for outreach. Webhook receivers: `call-result`
-  and `vapi-call-result`. The sidebar has a Settings entry, but there is no settings feature. The
-  only notification is the in-app pending-member banner for company owners.
+  and `vapi-call-result`. Settings (`/settings`, opened from the gear beside the user's name) has
+  profile, security, appearance, credits, help and account deletion. The notification bell shows
+  join requests, admins' incoming feedback (with a "Looking into it" button) and, for the sender,
+  when their feedback was acknowledged. It is polled every minute, not pushed.
 
 ## 13. Voice-calling pipeline (the most safety-sensitive part)
 
@@ -394,7 +397,8 @@ use the Supabase MCP tools instead.
    checked `app_admins` with the service-role key. Never add a client-side admin check that grants
    anything, never widen an RLS policy to "admins can see everything" on a table the app reads,
    and never return message text, prompts, transcripts or secret values to that console — it
-   reports activity, not content.
+   reports activity, not content. The one exception is `feedback_messages`, which people write
+   *to* the Synq team from Settings > Help; admins read them in the notification bell.
 
 ## 18. Coding conventions
 
