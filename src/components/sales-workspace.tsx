@@ -8,7 +8,6 @@ import {
   ArrowIcon,
   CalendarIcon,
   ChartIcon,
-  ClockIcon,
   DownloadIcon,
   FileTextIcon,
   HandshakeIcon,
@@ -17,8 +16,6 @@ import {
   SparkIcon,
   TargetIcon,
   TrendUpIcon,
-  UploadIcon,
-  UserIcon,
   UsersIcon,
   XIcon,
 } from '@/components/icons';
@@ -31,7 +28,6 @@ import {
   ButtonRow,
   Card,
   ChoiceGroup,
-  DataTable,
   EmptyState,
   ErrorState,
   Field,
@@ -54,7 +50,6 @@ import {
   showToast,
   transition,
   useBreakpoint,
-  type Tone,
 } from '@/components/ui';
 import { DataColors, PageMaxWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -82,14 +77,14 @@ import {
   type SalesTarget,
 } from '@/lib/sales-workspace';
 import { meetingTime, relativeTime } from '@/lib/workspace';
+import { MeetingsCalendar, type CalendarMeeting } from '@/components/meetings-calendar';
 import type { Lead } from '@/types/database';
 
-type Tab = 'overview' | 'leads' | 'meetings' | 'targets' | 'email';
+type Tab = 'overview' | 'meetings' | 'targets' | 'email';
 type Section = 'Deal' | 'Meeting' | 'Quotation';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
-  { key: 'leads', label: 'Leads' },
   { key: 'meetings', label: 'Meetings' },
   { key: 'targets', label: 'Targets' },
   { key: 'email', label: 'Email duties' },
@@ -103,13 +98,6 @@ const STAGE_TONE: Record<Deal['stage'], string> = {
   negotiating: DataColors.sales,
   won: '#16A34A',
   lost: '#DC2626',
-};
-
-const LEAD_TONE: Record<Lead['status'], Tone> = {
-  new: 'info',
-  contacted: 'accent',
-  qualified: 'success',
-  disqualified: 'neutral',
 };
 
 function download(text: string, name: string, type = 'text/plain') {
@@ -146,11 +134,10 @@ export function SalesWorkspace() {
   const emailVisible = params.compose === '1' || params.view === 'email';
   const current: Tab = emailVisible
     ? 'email'
-    : params.view === 'leads' || params.view === 'meetings' || params.view === 'targets'
+    : params.view === 'meetings' || params.view === 'targets'
       ? params.view
       : 'overview';
   const [rows, setRows] = useState<Deal[]>([]),
-    [leadRows, setLeadRows] = useState<Lead[]>([]),
     [campaignRows, setCampaignRows] = useState<OutreachCampaign[]>([]),
     [emailError, setEmailError] = useState(''),
     [meetingRows, setMeetingRows] = useState<Awaited<ReturnType<typeof loadSalesMeetings>>>([]),
@@ -159,9 +146,8 @@ export function SalesWorkspace() {
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState('');
   const [search, setSearch] = useState(''),
-    [leadSearch, setLeadSearch] = useState(''),
     [archived, setArchived] = useState(false),
-    [activityFilter, setActivityFilter] = useState<'all' | 'leads' | 'meetings' | 'deals'>('all'),
+    [activityFilter, setActivityFilter] = useState<'all' | 'meetings' | 'deals'>('all'),
     [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState(false),
     [editing, setEditing] = useState<Deal>(),
@@ -184,9 +170,8 @@ export function SalesWorkspace() {
 
   const refresh = useCallback(async () => {
     try {
-      const [deals, goal, leads] = await Promise.all([loadSales(), loadTarget(month), listLeads()]);
+      const [deals, goal] = await Promise.all([loadSales(), loadTarget(month)]);
       setRows(deals);
-      setLeadRows(leads);
       setTarget(goal);
       setError('');
       setLoaded(true);
@@ -199,10 +184,9 @@ export function SalesWorkspace() {
     let live = true;
     const load = async () => {
       try {
-        const [deals, goal, leads] = await Promise.all([loadSales(), loadTarget(month), listLeads()]);
+        const [deals, goal] = await Promise.all([loadSales(), loadTarget(month)]);
         if (live) {
           setRows(deals);
-          setLeadRows(leads);
           setTarget(goal);
           setError('');
           setLoaded(true);
@@ -347,10 +331,6 @@ export function SalesWorkspace() {
       .map((deal) => ({ id: deal.id, title: deal.title, when: `${deal.meeting_on} ${deal.meeting_time}`.trim(), sort: `${deal.meeting_on}T${deal.meeting_time || '00:00'}`, deal })),
   ].sort((a, b) => a.sort.localeCompare(b.sort));
   const totalMeetings = meetingRows.length + rows.filter((deal) => deal.meeting_on).length;
-  const leadsThisMonth = leadRows.filter((lead) => lead.created_at.slice(0, 7) === today.slice(0, 7)).length;
-  const nextActions = stats.open
-    .filter((d) => d.next_action)
-    .sort((a, b) => (a.next_action_on || '9999').localeCompare(b.next_action_on || '9999'));
   const monthLabel = new Date(month + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const openTarget = () => {
     setGoalRevenue(String(target?.revenue_goal ?? ''));
@@ -364,12 +344,6 @@ export function SalesWorkspace() {
       <PageHeader
         title="Sales"
         description="Turn conversations into opportunities — and opportunities into customers."
-        actions={
-          <>
-            <Button label="Import leads" icon={UploadIcon} onPress={() => router.push('/import-leads')} />
-            <Button label="New opportunity" variant="primary" icon={PlusIcon} onPress={() => open()} />
-          </>
-        }
       />
       <Tabs label="Sales sections" items={TABS} value={current} onChange={selectTab} />
     </View>
@@ -379,15 +353,6 @@ export function SalesWorkspace() {
     <View style={styles.kpis}>
       {[
         <KpiCard
-          key="leads"
-          label="Total leads"
-          icon={UsersIcon}
-          color={DataColors.company}
-          value={loaded ? String(leadRows.length) : null}
-          note={leadsThisMonth ? `${leadsThisMonth} added this month` : 'In your CRM'}
-          onPress={() => selectTab('leads')}
-        />,
-        <KpiCard
           key="meetings"
           label="Meetings booked"
           icon={CalendarIcon}
@@ -395,6 +360,14 @@ export function SalesWorkspace() {
           value={loaded ? String(totalMeetings) : null}
           note={meetingError ? 'Meeting list unavailable' : `${upcoming.length} upcoming`}
           onPress={() => selectTab('meetings')}
+        />,
+        <KpiCard
+          key="open"
+          label="Open opportunities"
+          icon={HandshakeIcon}
+          color={DataColors.company}
+          value={loaded ? String(stats.open.length) : null}
+          note={stats.open.length ? `${money(stats.open.reduce((sum, deal) => sum + Number(deal.amount || 0), 0))} known value` : 'Created from email replies'}
         />,
         <KpiCard
           key="conversion"
@@ -484,8 +457,8 @@ export function SalesWorkspace() {
         <EmptyState
           icon={HandshakeIcon}
           title="No opportunities yet"
-          description="Add one here, or create one from a reply in Email duties."
-          action={{ label: 'New opportunity', icon: PlusIcon, onPress: () => open() }}
+          description="Opportunities are created from replies in Email duties."
+          action={{ label: 'Open Email duties', icon: MailIcon, onPress: () => selectTab('email') }}
         />
       ) : !filtered.length ? (
         <EmptyState
@@ -534,7 +507,6 @@ export function SalesWorkspace() {
                 : `${campaignRows.length} email ${campaignRows.length === 1 ? 'duty' : 'duties'} · ${campaignRows.filter((c) => c.status === 'active').length} active`,
             icon: MailIcon, color: DataColors.sales, onPress: () => router.setParams({ compose: '1', view: 'email' }) },
           { title: 'Ask Sales AI', subtitle: 'Get help with targeting, replies and follow-ups', icon: SparkIcon, color: DataColors.marketing, onPress: () => router.setParams({ ai: '1', department: 'sales' }) },
-          { title: 'Import leads', subtitle: 'Bring contacts in from a spreadsheet', icon: UploadIcon, color: DataColors.company, onPress: () => router.push('/import-leads') },
           { title: 'Prepare a quotation', subtitle: 'Start a draft quote for an opportunity', icon: FileTextIcon, color: '#16A34A', onPress: () => open(undefined, 'Quotation') },
         ].map((item, index, list) => (
           <ListRow
@@ -550,42 +522,31 @@ export function SalesWorkspace() {
     </Card>
   );
 
-  const whatsNext = (
-    <Card>
-      <SectionHeader
-        title="What's next?"
-        subtitle="Next steps saved on open opportunities"
-        action={nextActions.length ? <StatusBadge label={`${nextActions.length} ${nextActions.length === 1 ? 'step' : 'steps'}`} dot={false} /> : undefined}
-      />
-      {!nextActions.length ? (
-        <EmptyState
-          icon={ClockIcon}
-          title="No next steps yet"
-          description="Add a next action inside an opportunity to build your follow-up list."
-          action={{ label: 'Plan a meeting', onPress: () => open(undefined, 'Meeting') }}
-          compact
-        />
-      ) : (
-        <View>
-          {nextActions.slice(0, 5).map((d, index, list) => {
-            const overdue = d.next_action_on && d.next_action_on < today;
-            return (
-              <ListRow
-                key={d.id}
-                title={d.next_action}
-                subtitle={`${d.title} · ${d.next_action_on || 'No due date'}`}
-                leading={<IconTile icon={overdue ? ClockIcon : TargetIcon} color={overdue ? '#DC2626' : DataColors.sales} size={34} />}
-                trailing={overdue ? <StatusBadge label="Overdue" tone="danger" /> : undefined}
-                onPress={() => open(d)}
-                chevron={!overdue}
-                divider={index < list.length - 1}
-              />
-            );
-          })}
-        </View>
-      )}
-    </Card>
-  );
+  // Every planned meeting on one calendar: company meetings with their time,
+  // and meetings saved on an opportunity, which may only have a date.
+  const calendarMeetings: CalendarMeeting[] = [
+    ...meetingRows.map((meeting) => ({
+      id: meeting.id,
+      title: meeting.title,
+      start: new Date(meeting.starts_at),
+      hasTime: true,
+      onPress: () => selectTab('meetings'),
+    })),
+    ...stats.meetings.map((deal) => {
+      const [year, monthIndex, day] = String(deal.meeting_on).split('-').map(Number);
+      const [hour, minute] = (deal.meeting_time || '').split(':').map(Number);
+      const timed = Number.isFinite(hour) && Number.isFinite(minute);
+      return {
+        id: `deal-${deal.id}`,
+        title: deal.title,
+        start: new Date(year, monthIndex - 1, day, timed ? hour : 0, timed ? minute : 0),
+        hasTime: timed,
+        onPress: () => open(deal, 'Meeting'),
+      };
+    }),
+  ].filter((meeting) => !Number.isNaN(meeting.start.getTime()));
+
+  const calendar = <MeetingsCalendar meetings={calendarMeetings} onViewAll={() => selectTab('meetings')} />;
 
   const targetsBody = target ? (
     <View style={styles.targets}>
@@ -633,7 +594,6 @@ export function SalesWorkspace() {
   );
 
   const activityItems = [
-    ...leadRows.map((lead) => ({ type: 'leads' as const, label: `New lead: ${lead.name || lead.company || lead.email || 'New contact'}`, at: lead.created_at, icon: UserIcon, color: DataColors.company })),
     ...meetingRows.map((meeting) => ({ type: 'meetings' as const, label: `Meeting scheduled: ${meeting.title}`, at: meeting.created_at, icon: CalendarIcon, color: DataColors.marketing })),
     ...rows.map((deal) => ({ type: 'deals' as const, label: `Opportunity updated: ${deal.title}`, at: deal.updated_at, icon: HandshakeIcon, color: DataColors.sales })),
   ]
@@ -650,7 +610,6 @@ export function SalesWorkspace() {
         onChange={setActivityFilter}
         items={[
           { key: 'all', label: 'All' },
-          { key: 'leads', label: 'Leads' },
           { key: 'meetings', label: 'Meetings' },
           { key: 'deals', label: 'Opportunities' },
         ]}
@@ -699,79 +658,6 @@ export function SalesWorkspace() {
           ))}
         </View>
       )}
-    </Card>
-  );
-
-  const shownLeads = leadRows.filter((lead) =>
-    `${lead.name ?? ''} ${lead.company ?? ''} ${lead.email ?? ''} ${lead.phone ?? ''}`.toLowerCase().includes(leadSearch.toLowerCase()),
-  );
-  const leadsTab = (
-    <Card>
-      <SectionHeader
-        title="Leads"
-        subtitle={`${leadRows.length} ${leadRows.length === 1 ? 'contact' : 'contacts'} in your CRM. Select one to start an opportunity with their details.`}
-        action={<Button label="Import leads" size="sm" icon={UploadIcon} onPress={() => router.push('/import-leads')} />}
-      />
-      {leadRows.length ? <SearchInput placeholder="Search by name, company, email or phone" value={leadSearch} onChangeText={setLeadSearch} /> : null}
-      <DataTable
-        rows={shownLeads}
-        rowKey={(lead) => lead.id}
-        rowLabel={(lead) => `Start an opportunity with ${lead.name || lead.company || lead.email || 'this lead'}`}
-        onRowPress={(lead) =>
-          open(undefined, 'Deal', {
-            title: `${lead.company || lead.name || 'New opportunity'}`.slice(0, 160),
-            contact_name: lead.name || '',
-            contact_email: lead.email || '',
-            company: lead.company || '',
-          })
-        }
-        columns={[
-          {
-            key: 'name',
-            title: 'Contact',
-            flex: 1.6,
-            render: (lead) => (
-              <View>
-                <ThemedText type="smallBold" numberOfLines={1}>
-                  {lead.name || lead.company || 'Unnamed contact'}
-                </ThemedText>
-                {lead.name && lead.company ? (
-                  <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
-                    {lead.company}
-                  </ThemedText>
-                ) : null}
-              </View>
-            ),
-          },
-          { key: 'email', title: 'Email', flex: 1.6, render: (lead) => <ThemedText type="small" numberOfLines={1}>{lead.email || '—'}</ThemedText> },
-          { key: 'phone', title: 'Phone', flex: 1, hideOnCompact: true, render: (lead) => <ThemedText type="small" numberOfLines={1}>{lead.phone || '—'}</ThemedText> },
-          {
-            key: 'status',
-            title: 'Status',
-            flex: 0.9,
-            render: (lead) => <StatusBadge label={lead.status.charAt(0).toUpperCase() + lead.status.slice(1)} tone={LEAD_TONE[lead.status] ?? 'neutral'} />,
-          },
-          {
-            key: 'added',
-            title: 'Added',
-            flex: 0.9,
-            hideOnCompact: true,
-            render: (lead) => (
-              <ThemedText type="caption" themeColor="textSecondary">
-                {new Date(lead.created_at).toLocaleDateString()}
-              </ThemedText>
-            ),
-          },
-        ]}
-        empty={
-          <EmptyState
-            icon={UsersIcon}
-            title={leadSearch ? 'No matching leads' : 'No leads yet'}
-            description={leadSearch ? 'Try another name or email.' : 'Import a spreadsheet of contacts to build your CRM.'}
-            action={leadSearch ? undefined : { label: 'Import leads', icon: UploadIcon, onPress: () => router.push('/import-leads') }}
-          />
-        }
-      />
     </Card>
   );
 
@@ -827,13 +713,11 @@ export function SalesWorkspace() {
       side={
         <>
           {salesAi}
-          {whatsNext}
+          {calendar}
           {targetsSummary}
         </>
       }
     />
-  ) : current === 'leads' ? (
-    leadsTab
   ) : current === 'meetings' ? (
     <SalesMeetings legacyMeetings={stats.active.filter((deal) => deal.meeting_on)} onEditLegacy={(deal) => open(deal, 'Meeting')} />
   ) : (

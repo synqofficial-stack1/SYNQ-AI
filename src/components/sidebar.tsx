@@ -2,41 +2,35 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useState, type ComponentType } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
-  AlertIcon,
   ArrowIcon,
-  BookIcon,
   BuildingIcon,
   ChartIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CrownIcon,
-  FileTextIcon,
+  ClockIcon,
   GearIcon,
-  HelpIcon,
   HomeIcon,
   MegaphoneIcon,
-  MessageIcon,
   PuzzleIcon,
   UsersIcon,
   type IconProps,
 } from '@/components/icons';
-import { ModalSheet } from '@/components/modal-sheet';
-import { ThemedText } from '@/components/themed-text';
-import { Avatar, Button, showToast, transition } from '@/components/ui';
+import { Avatar, transition } from '@/components/ui';
 import { SidebarCollapsedWidth, SidebarColors, SidebarWidth } from '@/constants/theme';
 import { isAdmin } from '@/lib/admin';
 import { supabase } from '@/lib/supabase';
 
-// The global navigation, in three groups: the departments, quick access to
-// the places people reach for most, and help. Every entry opens a real page;
-// nothing here is a placeholder.
+// The global navigation: the departments, then quick access to the team and
+// the person's own history. Settings and help live behind the gear beside the
+// person's name, so they are not repeated here. Every entry opens a real page.
 //
-// The counts beside Sales and Marketing are live: new leads nobody has
-// contacted yet, and marketing drafts not yet published. A count of zero is
-// not shown, so a badge always means "something is waiting for you".
+// The counts beside Sales and Marketing are live: meetings still to come, and
+// marketing drafts not yet published. A count of zero is not shown, so a badge
+// always means "something is waiting for you".
 //
 // The sidebar is near-black in both themes: it carries the brand, and the
 // yellow selection reads best against it.
@@ -46,7 +40,6 @@ import { supabase } from '@/lib/supabase';
 const MARK = require('../../assets/images/synq-mark.png');
 const MARK_ASPECT = 312 / 448;
 
-const SUPPORT_PHONE = '6300840955';
 const VIOLET = '#A78BFA';
 
 type Badge = 'sales' | 'marketing';
@@ -79,23 +72,23 @@ const DEPARTMENTS: NavEntry[] = [
 
 const QUICK_ACCESS: NavEntry[] = [
   { label: 'Team', path: '/company?tab=team', icon: UsersIcon, matches: () => false },
-  { label: 'Reports', path: '/history', icon: FileTextIcon, matches: (p) => p.startsWith('/history') },
-  { label: 'Settings', path: '/settings', icon: GearIcon },
+  { label: 'History', path: '/history', icon: ClockIcon, matches: (p) => p.startsWith('/history') },
 ];
 
 const BADGE_LABEL: Record<Badge, (count: number) => string> = {
-  sales: (count) => `${count} new ${count === 1 ? 'lead' : 'leads'} to contact`,
+  sales: (count) => `${count} upcoming ${count === 1 ? 'meeting' : 'meetings'}`,
   marketing: (count) => `${count} unpublished ${count === 1 ? 'draft' : 'drafts'}`,
 };
 
 /** Counts for the badges. A failed count hides its badge rather than showing a wrong number. */
 async function loadBadgeCounts(): Promise<Record<Badge, number>> {
-  const [leads, drafts] = await Promise.all([
-    supabase.from('leads').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+  const [meetings, drafts] = await Promise.all([
+    // Only meetings this person organizes or attends are visible to them.
+    supabase.from('sales_meetings').select('id', { count: 'exact', head: true }).gt('starts_at', new Date().toISOString()),
     supabase.from('marketing_post_drafts').select('id', { count: 'exact', head: true }),
   ]);
   return {
-    sales: leads.error ? 0 : leads.count ?? 0,
+    sales: meetings.error ? 0 : meetings.count ?? 0,
     marketing: drafts.error ? 0 : drafts.count ?? 0,
   };
 }
@@ -231,9 +224,6 @@ export function Sidebar({
     };
   }, [pathname]);
 
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
-
   const go = (path: string) => {
     const withAi = (pathname === '/ai-mode' || ai === '1') && path !== '/ai-mode';
     const destination = withAi ? `${path}${path.includes('?') ? '&' : '?'}ai=1` : path;
@@ -262,14 +252,6 @@ export function Sidebar({
       onPress={() => go(entry.path)}
     />
   );
-
-  async function sendFeedback() {
-    setFeedbackBusy(true);
-    const { error } = await supabase.functions.invoke('request-ceo-alert', { body: {} });
-    setFeedbackBusy(false);
-    setFeedbackOpen(false);
-    showToast(error ? 'Could not send your report. Please try again later.' : 'Thanks — the Synq team has been alerted.', error ? 'danger' : 'success');
-  }
 
   const onSettings = pathname === '/settings';
 
@@ -310,18 +292,6 @@ export function Sidebar({
         <SectionLabel title="Quick access" collapsed={collapsed} />
         <View style={styles.group}>{QUICK_ACCESS.map(item)}</View>
 
-        <SectionLabel title="Resources" collapsed={collapsed} />
-        <View style={styles.group}>
-          {item({ label: 'Help & Support', path: '/settings?section=help', icon: BookIcon, matches: () => false })}
-          <NavItem
-            entry={{ label: 'Feedback', path: '', icon: MessageIcon }}
-            active={false}
-            collapsed={collapsed}
-            count={0}
-            role="button"
-            onPress={() => setFeedbackOpen(true)}
-          />
-        </View>
       </ScrollView>
 
       {collapsed ? (
@@ -401,20 +371,6 @@ export function Sidebar({
         </Pressable>
       </View>
 
-      <ModalSheet
-        visible={feedbackOpen}
-        onClose={() => (feedbackBusy ? undefined : setFeedbackOpen(false))}
-        title="Feedback"
-        description="Something not working, or an idea for Synq? Tell the team."
-      >
-        <ThemedText type="small" themeColor="textSecondary">
-          Report a problem and the Synq team is alerted with your account, so they can look into it. To talk it through, call support.
-        </ThemedText>
-        <View style={styles.feedbackActions}>
-          <Button label="Call support" icon={HelpIcon} onPress={() => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {})} />
-          <Button label="Report a problem" variant="primary" icon={AlertIcon} loading={feedbackBusy} onPress={() => void sendFeedback()} />
-        </View>
-      </ModalSheet>
     </View>
   );
 }
@@ -543,5 +499,4 @@ const styles = StyleSheet.create({
   profileName: { color: SidebarColors.text, fontSize: 14.5, fontWeight: '700' },
   profileRole: { color: SidebarColors.textSecondary, fontSize: 12.5, marginTop: 1 },
   profileSettings: { width: 34, height: 34, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  feedbackActions: { flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 },
 });

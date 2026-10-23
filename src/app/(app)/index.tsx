@@ -21,7 +21,6 @@ import {
   PlusIcon,
   SparkIcon,
   TargetIcon,
-  UploadIcon,
   UserIcon,
   UsersIcon,
   VideoIcon,
@@ -160,7 +159,6 @@ function Welcome({ firstName, companyName }: { firstName: string; companyName: s
         <View ref={createAnchor} collapsable={false}>
           <Button label="Create" variant="primary" icon={PlusIcon} onPress={() => setCreateOpen(true)} accessibilityLabel="Create something new" />
         </View>
-        <Button label="Import leads" icon={UploadIcon} onPress={() => go('/import-leads')} />
         <Button label="Write emails" icon={MailIcon} onPress={() => go('/sales?compose=1')} />
         <Button label="Generate content" icon={SparkIcon} onPress={() => go('/marketing?ai=1&department=marketing')} />
       </View>
@@ -270,7 +268,6 @@ function AskSynqPanel() {
 function QuickActions() {
   const theme = useTheme();
   const actions: { label: string; icon: ComponentType<IconProps>; onPress: () => void }[] = [
-    { label: 'Import leads', icon: UploadIcon, onPress: () => go('/import-leads') },
     { label: 'Write emails', icon: MailIcon, onPress: () => go('/sales?compose=1') },
     { label: 'Create reel', icon: VideoIcon, onPress: () => go('/marketing?view=create') },
     { label: 'Generate content', icon: SparkIcon, onPress: () => go('/marketing?ai=1&department=marketing') },
@@ -411,7 +408,6 @@ export default function DashboardScreen() {
           value={data ? (unavailable('leads') ? '—' : String(data.leads.total)) : null}
           note={data ? (unavailable('leads') ? 'Could not load leads' : data.leads.inRange ? `${data.leads.inRange} added, ${rangeNote.toLowerCase()}` : 'In your CRM') : undefined}
           spark={data?.leads.daily}
-          onPress={() => go('/import-leads')}
         />,
         <KpiCard
           key="meetings"
