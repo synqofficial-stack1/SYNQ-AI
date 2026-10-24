@@ -54,7 +54,7 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       }
     };
     load();
-    const timer = setInterval(load, 20000);
+    const timer = setInterval(load, 60000);
     return () => {
       live = false;
       clearInterval(timer);

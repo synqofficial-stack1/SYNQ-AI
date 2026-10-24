@@ -456,10 +456,10 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
     <Card>
       <SectionHeader title="2. Caption & details" subtitle="The shared caption is copied to each destination, where you can adjust it." />
       <Field label="Title" helper="Used as the YouTube title." count={{ value: title.length, max: 100 }}>
-        <TextField accessibilityLabel="Post title" value={title} onChangeText={setTitle} placeholder="e.g. Turn your café into a brand" maxLength={100} editable={!!media} />
+        <TextField accessibilityLabel="Post title" value={title} onChangeText={setTitle} placeholder="e.g. Turn your café into a brand" maxLength={100} />
       </Field>
       <Field label={platforms.includes('youtube') ? 'YouTube description' : 'Description'} helper="Optional." count={{ value: description.length, max: 5000 }}>
-        <TextField accessibilityLabel={platforms.includes('youtube') ? 'YouTube description' : 'Description'} value={description} onChangeText={setDescription} placeholder="What is this video about?" multiline maxLength={5000} editable={!!media} />
+        <TextField accessibilityLabel={platforms.includes('youtube') ? 'YouTube description' : 'Description'} value={description} onChangeText={setDescription} placeholder="What is this video about?" multiline maxLength={5000} />
       </Field>
       {platforms.includes('youtube') ? (
         <View style={styles.aiRow}>
@@ -506,11 +506,11 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
           }}
           placeholder="From great coffee to happy customers…"
           multiline
-          editable={!!media}
+         
         />
       </Field>
       <Field label="Hashtags" helper="Optional. Added after the caption on every destination.">
-        <TextField accessibilityLabel="Hashtags" value={hashtags} onChangeText={setHashtags} placeholder="#smallbusiness #cafe" editable={!!media} />
+        <TextField accessibilityLabel="Hashtags" value={hashtags} onChangeText={setHashtags} placeholder="#smallbusiness #cafe" />
       </Field>
       {platforms.includes('youtube') ? (
         <Field label="YouTube visibility">
