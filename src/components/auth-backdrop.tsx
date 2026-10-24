@@ -7,10 +7,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
+
+import { useLayoutWidth } from '@/components/phone-frame';
 
 // The scene every sign-in screen sits in: a photograph of a desk at dusk, with
 // the form floating in the middle of it.
@@ -63,7 +64,7 @@ function Scrim() {
 
 /** The logo and the line under it, sized for the screen it lands on. */
 export function BrandMark() {
-  const { width } = useWindowDimensions();
+  const width = useLayoutWidth();
   const compact = width <= COMPACT_MAX_WIDTH;
 
   return (

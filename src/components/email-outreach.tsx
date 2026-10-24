@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useLayoutWidth } from '@/components/phone-frame';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { ActivityLineChart, DonutChart, SERIES_COLORS } from '@/components/charts';
@@ -133,7 +134,7 @@ export function EmailOutreach({
   header?: ReactNode;
 } = {}) {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
+  const width = useLayoutWidth();
   const params = useLocalSearchParams<{ gmail?: string; compose?: string }>();
   const [composerStep, setComposerStep] = useState(0);
   const composerVisible = params.compose === '1';
