@@ -11,25 +11,19 @@ import {
   CalendarIcon,
   ChartIcon,
   CheckIcon,
-  ClipboardIcon,
   ClockIcon,
   LayersIcon,
   MailIcon,
   MegaphoneIcon,
   PlayIcon,
-  PlugIcon,
-  PlusIcon,
-  SendIcon,
   SparkIcon,
   TargetIcon,
   UserIcon,
   UsersIcon,
-  VideoIcon,
   type IconProps,
 } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
 import {
-  Button,
   Card,
   EmptyState,
   ErrorState,
@@ -38,7 +32,6 @@ import {
   LinkButton,
   ListRow,
   Page,
-  Popover,
   ProgressBar,
   SectionHeader,
   Select,
@@ -127,12 +120,6 @@ function askSynq(prompt?: string) {
 
 function Welcome({ firstName, companyName }: { firstName: string; companyName: string }) {
   const theme = useTheme();
-  const createAnchor = useRef<View>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const create = (path: string) => {
-    setCreateOpen(false);
-    go(path);
-  };
   return (
     <View style={[styles.welcome, { borderColor: theme.border, backgroundColor: theme.surface }]}>
       <LinearGradient
@@ -158,39 +145,6 @@ function Welcome({ firstName, companyName }: { firstName: string; companyName: s
           </ThemedText>
         ) : null}
       </View>
-      <View style={styles.welcomeActions}>
-        <View ref={createAnchor} collapsable={false}>
-          <Button label="Create" variant="primary" icon={PlusIcon} onPress={() => setCreateOpen(true)} accessibilityLabel="Create something new" />
-        </View>
-      </View>
-      {/* Every quick action lives here, so the dashboard has one place to start things. */}
-      <Popover anchorRef={createAnchor} visible={createOpen} onClose={() => setCreateOpen(false)} label="Create" width={290}>
-        {[
-          { label: 'Email', hint: 'Send one email from your Gmail', icon: SendIcon, path: '/sales?send=1' },
-          { label: 'Email duty', hint: 'AI-drafted outreach to many people', icon: MailIcon, path: '/sales?compose=1' },
-          { label: 'Reel', hint: 'Upload a video and publish it', icon: VideoIcon, path: '/marketing?view=create' },
-          { label: 'Meeting', hint: 'Plan a sales meeting', icon: CalendarIcon, path: '/sales?view=meetings' },
-          { label: 'Team task', hint: 'Assign work to a teammate', icon: ClipboardIcon, path: '/company?tab=tasks' },
-          { label: 'Connect accounts', hint: 'Link YouTube, Instagram or X', icon: PlugIcon, path: '/plugins' },
-          { label: 'View activity', hint: 'Everything you have done in Synq', icon: ClockIcon, path: '/history' },
-        ].map((item) => (
-          <Pressable
-            key={item.label}
-            accessibilityRole="menuitem"
-            accessibilityLabel={`${item.label}: ${item.hint}`}
-            onPress={() => create(item.path)}
-            style={({ hovered }) => [styles.menuItem, hovered && { backgroundColor: theme.surfaceRaised }]}
-          >
-            <item.icon size={17} color={theme.textSecondary} />
-            <View style={styles.menuText}>
-              <ThemedText type="smallBold">{item.label}</ThemedText>
-              <ThemedText type="caption" themeColor="textSecondary">
-                {item.hint}
-              </ThemedText>
-            </View>
-          </Pressable>
-        ))}
-      </Popover>
     </View>
   );
 }
