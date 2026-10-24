@@ -1,4 +1,6 @@
-import { Platform, useWindowDimensions, type ViewStyle } from 'react-native';
+import { Platform, type ViewStyle } from 'react-native';
+
+import { useLayoutWidth } from '@/components/phone-frame';
 
 import { CompactBreakpoint, Motion, WideBreakpoint } from '@/constants/theme';
 
@@ -25,7 +27,7 @@ export const transition: ViewStyle = Platform.select({
 
 /** Layout breakpoints, so every screen agrees on what "phone" and "desktop" mean. */
 export function useBreakpoint() {
-  const { width } = useWindowDimensions();
+  const width = useLayoutWidth();
   return {
     width,
     /** Persistent sidebar, multi-column layouts. */

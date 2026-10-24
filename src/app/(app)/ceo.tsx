@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useLayoutWidth } from '@/components/phone-frame';
 
 import { ActivityLineChart, DonutChart, SERIES_COLORS } from '@/components/charts';
 import {
@@ -161,7 +162,7 @@ function Gap({ title, reason, needed }: { title: string; reason: string; needed:
 
 export default function CeoScreen() {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
+  const width = useLayoutWidth();
   const roomy = width >= TWO_COLUMN;
 
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);

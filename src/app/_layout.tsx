@@ -7,6 +7,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider, useSession } from '@/hooks/use-session';
 import { WorkspaceProvider } from '@/hooks/use-workspace';
 import { loadAppearancePreference, syncAppearanceWithAccount } from '@/lib/appearance';
+import { PhoneFrame } from '@/components/phone-frame';
 
 /** Applies the theme saved on the account each time someone signs in. */
 function AppearanceSync() {
@@ -57,7 +58,9 @@ export default function RootLayout() {
             },
           }}
         >
-          <Stack screenOptions={{ headerShown: false }} />
+          <PhoneFrame>
+            <Stack screenOptions={{ headerShown: false }} />
+          </PhoneFrame>
         </ThemeProvider>
       </WorkspaceProvider>
     </SessionProvider>
