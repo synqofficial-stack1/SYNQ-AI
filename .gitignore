@@ -77,3 +77,6 @@ supabase/.temp/
 
 # Design reference mockups: kept locally, not shipped in the repo (13 MB of PNGs).
 ui eg/
+
+# Local editor/preview settings; they contain this machine's paths.
+.claude/
