@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
 
 import { DepartmentActivityChart } from '@/components/department-activity-chart';
 import { EmailOutreach } from '@/components/email-outreach';
@@ -13,6 +13,7 @@ import {
   FileTextIcon,
   HandshakeIcon,
   MailIcon,
+  SmartphoneIcon,
   SendIcon,
   SparkIcon,
   TargetIcon,
@@ -136,6 +137,7 @@ export function SalesWorkspace() {
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState('');
   const [activityFilter, setActivityFilter] = useState<'all' | 'meetings' | 'deals'>('all'),
+    [numberNotice, setNumberNotice] = useState(false),
     [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState(false),
     [editing, setEditing] = useState<Deal>(),
@@ -383,6 +385,7 @@ export function SalesWorkspace() {
                 : `${campaignRows.length} email ${campaignRows.length === 1 ? 'duty' : 'duties'} · ${campaignRows.filter((c) => c.status === 'active').length} active`,
             icon: MailIcon, color: DataColors.sales, onPress: () => router.setParams({ compose: '1', view: 'email' }) },
           { title: 'Ask Sales AI', subtitle: 'Get help with targeting, replies and follow-ups', icon: SparkIcon, color: DataColors.marketing, onPress: () => router.setParams({ ai: '1', department: 'sales' }) },
+          { title: 'Buy a phone number', subtitle: 'Needed before outbound calls', icon: SmartphoneIcon, color: DataColors.company, onPress: () => setNumberNotice(true) },
           { title: 'Prepare a quotation', subtitle: 'Start a draft quote for an opportunity', icon: FileTextIcon, color: '#16A34A', onPress: () => open(undefined, 'Quotation') },
         ].map((item, index, list) => (
           <ListRow
@@ -901,6 +904,22 @@ export function SalesWorkspace() {
         </ButtonRow>
       </ModalSheet>
       <SendEmailSheet visible={sendOpen} onClose={() => setSendOpen(false)} />
+      <ModalSheet visible={numberNotice} onClose={() => setNumberNotice(false)} title="Before you continue" description="Outbound calls need a phone number of your own.">
+        <View style={{ gap: 12 }}>
+          <ThemedText type="small">You need to buy a phone number from Exotel before Synq can make outbound calls. Exotel opens in a new tab.</ThemedText>
+          <ButtonRow>
+            <Button label="Cancel" variant="ghost" onPress={() => setNumberNotice(false)} />
+            <Button
+              label="Continue to Exotel"
+              variant="primary"
+              onPress={() => {
+                setNumberNotice(false);
+                void Linking.openURL('https://exotel.com/');
+              }}
+            />
+          </ButtonRow>
+        </View>
+      </ModalSheet>
     </View>
   );
 }
