@@ -24,7 +24,9 @@ function SetupForm({
   const { refresh } = useWorkspace();
   const [name, setName] = useState(initialName);
   const [company, setCompany] = useState(initialCompany);
-  const [owner, setOwner] = useState(false);
+  // Creating the workspace is the path that actually lets someone in. "Joining"
+  // an unregistered company is rejected, so that option starts unselected.
+  const [owner, setOwner] = useState(true);
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -164,20 +166,21 @@ export default function WorkspaceSetupScreen() {
   const pending = identity?.membership?.status === 'pending' && !edit;
   return (
     <ScrollView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      keyboardShouldPersistTaps="handled"
       contentContainerStyle={{
         flexGrow: 1,
-        backgroundColor: theme.background,
-        padding: 24,
+        padding: 20,
+        paddingBottom: 36,
         alignItems: 'center',
-        justifyContent: 'center',
       }}
     >
       <View
         style={{
           width: '100%',
           maxWidth: 680,
-          padding: 28,
-          gap: 20,
+          padding: 20,
+          gap: 14,
           borderWidth: 1,
           borderColor: theme.border,
           borderRadius: 20,

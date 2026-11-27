@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuthBackdrop, BrandMark } from '@/components/auth-backdrop';
 import { GoldButton } from '@/components/auth-buttons';
-import { AuthCard, AuthHeading } from '@/components/auth-card';
+import { AuthCard, AuthHeading, AuthNotice } from '@/components/auth-card';
 import { AuthField } from '@/components/auth-field';
 import { MailIcon } from '@/components/auth-icons';
 import { AccentColors } from '@/constants/theme';
@@ -55,14 +55,13 @@ export default function ForgotPasswordScreen() {
           onSubmitEditing={handleSend}
         />
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? <AuthNotice tone="error">{error}</AuthNotice> : null}
         {sent ? (
           // Deliberately not "we found your account": whether an address is
           // registered is not something a sign-in page should confirm.
-          <Text style={styles.info}>
-            If that email has an account, a reset link is on its way. Check the inbox and the spam
-            folder.
-          </Text>
+          <AuthNotice tone="info">
+            If that email has an account, a reset link is on its way. Check the inbox and the spam folder.
+          </AuthNotice>
         ) : null}
 
         <GoldButton
@@ -85,8 +84,6 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  error: { color: AccentColors.error, fontSize: 13, lineHeight: 19 },
-  info: { color: 'rgba(255, 255, 255, 0.78)', fontSize: 13, lineHeight: 19 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 2 },
   footerLink: { color: AccentColors.primaryLight, fontSize: 14, fontWeight: '600' },
 });

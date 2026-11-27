@@ -12,6 +12,7 @@ import {
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { useLayoutWidth } from '@/components/phone-frame';
+import { ignoreTouches } from '@/lib/pointer';
 
 // The scene every sign-in screen sits in: a photograph of a desk at dusk, with
 // the form floating in the middle of it.
@@ -45,10 +46,9 @@ function Scrim() {
     // percentages of the window, whatever shape it is, rather than of an SVG
     // that has no intrinsic size.
     <Svg
-      style={styles.layer}
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
-      pointerEvents="none"
+      {...ignoreTouches(styles.layer)}
     >
       <Defs>
         <RadialGradient id="pool" cx="50%" cy="50%" rx="48%" ry="62%">
@@ -95,7 +95,7 @@ export function AuthBackdrop({ children }: PropsWithChildren) {
       <Image source={BACKDROP} style={styles.layer} contentFit="cover" />
 
       <Scrim />
-      <LinearGradient pointerEvents="none" colors={DOWN_THE_PAGE} style={styles.layer} />
+      <LinearGradient colors={DOWN_THE_PAGE} {...ignoreTouches(styles.layer)} />
 
       <KeyboardAvoidingView
         style={styles.fill}
@@ -132,10 +132,15 @@ const styles = StyleSheet.create({
   logo: {
     height: 96,
     width: 96 * MARK_ASPECT,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.55,
-    shadowRadius: 18,
+    ...Platform.select({
+      web: { boxShadow: '0 4px 18px rgba(0, 0, 0, 0.55)' },
+      default: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.55,
+        shadowRadius: 18,
+      },
+    }),
   },
   logoCompact: { height: 76, width: 76 * MARK_ASPECT },
   tagline: { alignItems: 'center', gap: 4 },

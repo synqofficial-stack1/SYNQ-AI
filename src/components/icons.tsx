@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import Svg, { Circle, Ellipse, Line, Path, Polyline, Rect } from 'react-native-svg';
 
 // The workspace icon set: one outline style at one stroke weight, so every
@@ -20,7 +21,14 @@ const DEFAULT_COLOR = '#737373';
 function icon(shapes: Shape[]) {
   return function Icon({ size = 18, color = DEFAULT_COLOR, strokeWidth = 1.75 }: IconProps) {
     return (
-      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" pointerEvents="none">
+      <Svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        style={Platform.OS === 'web' ? { pointerEvents: 'none' } : undefined}
+        {...(Platform.OS === 'web' ? {} : { pointerEvents: 'none' as const })}
+      >
         {shapes.map(([tag, attributes], index) => {
           const Element = ELEMENTS[tag] as typeof Path;
           return (

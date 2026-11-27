@@ -16,7 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-import { alpha, initials, transition } from './utils';
+import { alpha, initials, transition, useBreakpoint } from './utils';
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info';
 
@@ -143,7 +143,7 @@ export type TabItem<K extends string> = { key: K; label: string; icon?: Componen
 
 /**
  * Section tabs: the selected one is filled yellow, the rest sit on white. On a
- * narrow screen they scroll sideways instead of wrapping into a wall of pills.
+ * narrow screen they wrap so none are cut off; wider screens keep one scrolling row.
  */
 export function Tabs<K extends string>({
   items,
@@ -160,16 +160,12 @@ export function Tabs<K extends string>({
   size?: 'sm' | 'md';
 }) {
   const theme = useTheme();
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.tabsScroll}
-      contentContainerStyle={styles.tabs}
-      accessibilityRole="tablist"
-      accessibilityLabel={label}
-    >
-      {items.map((item) => {
+  const { width } = useBreakpoint();
+  // Four sales sections do not fit on one line inside the phone frame. A
+  // sideways scroller hid "Email duties" behind the edge. Wrapping keeps
+  // every section on screen; wider layouts still scroll in one row.
+  const wrap = width < 520;
+  const tabs = items.map((item) => {
         const active = item.key === value;
         const Icon = item.icon;
         return (
@@ -206,8 +202,27 @@ export function Tabs<K extends string>({
             ) : null}
           </Pressable>
         );
-      })}
-    </ScrollView>
+      });
+  if (wrap) {
+    return (
+      <View accessibilityRole="tablist" accessibilityLabel={label} style={styles.tabsWrap}>
+        {tabs}
+      </View>
+    );
+  }
+  return (
+    <View style={styles.tabsClip}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabsScroll}
+        contentContainerStyle={styles.tabs}
+        accessibilityRole="tablist"
+        accessibilityLabel={label}
+      >
+        {tabs}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -422,8 +437,10 @@ const styles = StyleSheet.create({
   avatar: { alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '700' },
   track: { width: '100%', overflow: 'hidden' },
-  tabsScroll: { flexGrow: 0, flexShrink: 0 },
+  tabsClip: { width: '100%', maxWidth: '100%', overflow: 'hidden' },
+  tabsScroll: { width: '100%', flexGrow: 0 },
   tabs: { flexDirection: 'row', gap: Spacing.two, paddingVertical: 2 },
+  tabsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, width: '100%' },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',

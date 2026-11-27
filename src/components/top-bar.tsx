@@ -67,10 +67,14 @@ export function TopBar({
     <View role="banner" style={[styles.bar, compact && styles.barCompact, { backgroundColor: theme.background }]}>
       {showMenuButton ? <IconButton icon={MenuIcon} label="Open navigation" onPress={onMenu} variant="outline" /> : null}
 
-      {showMenuButton ? (
+      {showMenuButton && width >= 480 ? (
         <ThemedText type="cardTitle" style={styles.title} numberOfLines={1}>
           {title}
         </ThemedText>
+      ) : showMenuButton ? (
+        // The page already prints its own title. In the phone frame a second
+        // copy only has room for "Dashb…" / "Compa…", which reads as broken.
+        <View style={styles.titleSpacer} />
       ) : null}
 
       {compact ? (
@@ -167,7 +171,8 @@ const styles = StyleSheet.create({
   },
   barCompact: { height: 64, paddingHorizontal: 16, gap: 8 },
   title: { flex: 1, minWidth: 0 },
-  compactActions: { marginLeft: 'auto' },
+  titleSpacer: { flex: 1 },
+  compactActions: {},
   search: {
     flex: 1,
     maxWidth: 780,

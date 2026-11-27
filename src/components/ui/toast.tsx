@@ -5,6 +5,8 @@ import { CheckCircleIcon, InfoIcon, AlertCircleIcon, XIcon } from '@/components/
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
+import { ignoreTouches } from '@/lib/pointer';
+
 import { floatingShadow, useBreakpoint } from './utils';
 
 // Short confirmations that float over the page: "Settings saved", "Copied".
@@ -67,7 +69,7 @@ export function ToastHost() {
   const { isCompact } = useBreakpoint();
   if (!items.length) return null;
   return (
-    <View pointerEvents="box-none" style={[styles.host, isCompact ? styles.hostCompact : styles.hostWide]}>
+    <View {...ignoreTouches([styles.host, isCompact ? styles.hostCompact : styles.hostWide], 'box-none')}>
       {items.map((toast) => (
         <ToastItem key={toast.id} toast={toast} />
       ))}

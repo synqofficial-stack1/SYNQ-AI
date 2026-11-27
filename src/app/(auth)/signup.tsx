@@ -6,7 +6,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AuthBackdrop, BrandMark } from '@/components/auth-backdrop';
 import { AppleSignInButton } from '@/components/apple-sign-in-button';
 import { GoldButton, GoogleButton, OrDivider } from '@/components/auth-buttons';
-import { AuthCard } from '@/components/auth-card';
+import { AuthCard, AuthNotice } from '@/components/auth-card';
 import { AuthField } from '@/components/auth-field';
 import {
   EyeIcon,
@@ -188,8 +188,8 @@ export default function SignupScreen() {
           onTrailingPress={() => setReveal((value) => !value)}
         />
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        {info ? <Text style={styles.info}>{info}</Text> : null}
+        {error ? <AuthNotice tone="error">{error}</AuthNotice> : null}
+        {info ? <AuthNotice tone="info">{info}</AuthNotice> : null}
         {sentTo ? (
           <Pressable accessibilityRole="button" onPress={() => void resend()} disabled={busy !== null}>
             <Text style={styles.footerLink}>{busy === 'resend' ? 'Sending…' : 'Send the confirmation email again'}</Text>
@@ -219,8 +219,6 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  error: { color: AccentColors.error, fontSize: 13, lineHeight: 19 },
-  info: { color: AccentColors.primaryLight, fontSize: 13, lineHeight: 19 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
