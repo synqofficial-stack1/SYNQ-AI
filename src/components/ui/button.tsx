@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import type { IconProps } from '@/components/icons';
+import { ignoreTouches } from '@/lib/pointer';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -176,7 +177,7 @@ export function IconButton({
       </Pressable>
       {/* A hover label on the web, where there is a pointer to hover with. */}
       {hover && Platform.OS === 'web' ? (
-        <View pointerEvents="none" style={[styles.tooltip, { top: size + 6 }]}>
+        <View {...ignoreTouches([styles.tooltip, { top: size + 6 }])}>
           <Text style={styles.tooltipText} numberOfLines={1}>
             {label}
           </Text>

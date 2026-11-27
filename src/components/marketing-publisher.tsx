@@ -6,6 +6,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { File as ExpoFile } from 'expo-file-system';
 
 import { PlatformMark } from '@/components/brand-icons';
+import { ignoreTouches } from '@/lib/pointer';
 import { CheckCircleIcon, CircleIcon, FilmIcon, PlugIcon, PlusIcon, RefreshIcon, SendIcon, SparkIcon, TrashIcon, UploadIcon, VideoIcon } from '@/components/icons';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -394,7 +395,7 @@ export function MarketingPublisher({ initialDraftId }: { initialDraftId?: string
             MP4 only, up to 100 MB
           </ThemedText>
           {!busy ? (
-            <View pointerEvents="none" style={[styles.fakeButton, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+            <View {...ignoreTouches([styles.fakeButton, { borderColor: theme.border, backgroundColor: theme.surface }])}>
               <ThemedText type="smallBold">Browse files</ThemedText>
             </View>
           ) : null}

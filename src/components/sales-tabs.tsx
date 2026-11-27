@@ -1,9 +1,10 @@
 import { TabStrip, type Tab } from '@/components/tab-strip';
 
-// Email outreach owns its campaign analytics and reports. Calling is paused.
+// Follow-ups used to be its own screen. It now redirects to Sales, so a tab
+// with that name only bounced people. These two open the pages that exist.
 const TABS: Tab[] = [
-  { label: 'Email outreach', path: '/sales' },
-  { label: 'Follow-ups', path: '/follow-ups' },
+  { label: 'Sales', path: '/sales' },
+  { label: 'Import leads', path: '/import-leads' },
 ];
 
 export function SalesTabs() {

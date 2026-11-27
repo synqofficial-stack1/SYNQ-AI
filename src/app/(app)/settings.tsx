@@ -339,7 +339,7 @@ export default function SettingsScreen() {
               {savedProfile.name || 'Add your name'}
             </ThemedText>
             {membership ? <StatusBadge label={owner ? 'Owner' : 'Member'} tone={owner ? 'accent' : 'neutral'} /> : null}
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+            <ThemedText type="small" themeColor="textSecondary">
               {email}
             </ThemedText>
           </View>

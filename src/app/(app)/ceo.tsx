@@ -20,6 +20,7 @@ import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { AccentColors, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ignoreTouches } from '@/lib/pointer';
 import {
   AdminError,
   ago,
@@ -83,9 +84,8 @@ function GlassCard({ children, style }: { children: ReactNode; style?: object })
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }, style]}>
       <LinearGradient
-        pointerEvents="none"
         colors={SHEEN}
-        style={StyleSheet.absoluteFill}
+        {...ignoreTouches(StyleSheet.absoluteFill)}
         start={{ x: 0, y: 0 }}
         end={{ x: 0.6, y: 1 }}
       />

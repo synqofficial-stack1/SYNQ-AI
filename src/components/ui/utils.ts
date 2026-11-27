@@ -39,6 +39,10 @@ export function useBreakpoint() {
 
 /** A soft card shadow for floating surfaces (menus, dialogs) only. */
 export function floatingShadow(color: string): ViewStyle {
+  // react-native-web warns on the shadow* props and tells you to use boxShadow.
+  if (Platform.OS === 'web') {
+    return { boxShadow: `0 12px 28px ${alpha(color, 0.14)}` };
+  }
   return {
     shadowColor: color,
     shadowOffset: { width: 0, height: 12 },

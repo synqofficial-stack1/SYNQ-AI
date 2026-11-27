@@ -28,7 +28,13 @@ async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<T> 
         const parsed = await response.json();
         if (parsed?.error) throw new Error(parsed.error);
       } catch (e) {
-        if (e instanceof Error && e.message) throw e;
+        // A JSON parse failure is not a message for the screen. A thrown
+        // Error from the branch above (the function's own wording) is.
+        if (e instanceof SyntaxError) {
+          /* fall through */
+        } else if (e instanceof Error && e.message) {
+          throw e;
+        }
       }
     }
     throw new Error(error.message || 'That did not go through. Try again.');

@@ -6,7 +6,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AuthBackdrop, BrandMark } from '@/components/auth-backdrop';
 import { AppleSignInButton } from '@/components/apple-sign-in-button';
 import { GoldButton, GoogleButton, OrDivider } from '@/components/auth-buttons';
-import { AuthCard } from '@/components/auth-card';
+import { AuthCard, AuthNotice } from '@/components/auth-card';
 import { AuthField } from '@/components/auth-field';
 import { EyeIcon, EyeOffIcon, LockIcon, MailIcon } from '@/components/auth-icons';
 import { AccentColors } from '@/constants/theme';
@@ -152,8 +152,8 @@ export default function LoginScreen() {
           </Pressable>
         </Link>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+        {error ? <AuthNotice tone="error">{error}</AuthNotice> : null}
+        {notice ? <AuthNotice tone="info">{notice}</AuthNotice> : null}
         {unconfirmed ? (
           <Pressable accessibilityRole="button" onPress={() => void resend()} disabled={busy !== null}>
             <Text style={styles.footerLink}>{busy === 'resend' ? 'Sending…' : 'Send the confirmation email again'}</Text>
@@ -183,8 +183,6 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   forgotRow: { alignSelf: 'flex-end', marginTop: -4 },
   forgot: { color: 'rgba(255, 255, 255, 0.85)', fontSize: 13, fontWeight: '600' },
-  error: { color: AccentColors.error, fontSize: 13, lineHeight: 19 },
-  notice: { color: AccentColors.primaryLight, fontSize: 13, lineHeight: 19 },
   footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 2 },
   footerText: { color: 'rgba(255, 255, 255, 0.72)', fontSize: 14 },
   footerLink: { color: AccentColors.primaryLight, fontSize: 14, fontWeight: '600' },

@@ -46,6 +46,7 @@ import { useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { subscribeAnalytics } from '@/lib/analytics-events';
+import { ignoreTouches } from '@/lib/pointer';
 import { setWorkspaceTaskStatus } from '@/lib/organization';
 import { loadSales, loadTarget, localDate, money, salesSummary, type SalesTarget } from '@/lib/sales-workspace';
 import { supabase } from '@/lib/supabase';
@@ -123,11 +124,10 @@ function Welcome({ firstName, companyName }: { firstName: string; companyName: s
   return (
     <View style={[styles.welcome, { borderColor: theme.border, backgroundColor: theme.surface }]}>
       <LinearGradient
-        pointerEvents="none"
         colors={[theme.accentSoft, theme.surface]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0.6 }}
-        style={StyleSheet.absoluteFill}
+        {...ignoreTouches(StyleSheet.absoluteFill)}
       />
       <View style={styles.welcomeBody}>
         <ThemedText type="label" themeColor="textSecondary">

@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useState, type ComponentType } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
   ArrowIcon,
@@ -21,6 +21,7 @@ import {
 import { Avatar, transition } from '@/components/ui';
 import { SidebarCollapsedWidth, SidebarColors, SidebarWidth } from '@/constants/theme';
 import { isAdmin } from '@/lib/admin';
+import { ignoreTouches } from '@/lib/pointer';
 import { supabase } from '@/lib/supabase';
 
 // The global navigation: the departments, then quick access to the team and
@@ -136,8 +137,7 @@ function NavItem({
           colors={['rgba(255, 212, 90, 0.22)', 'rgba(255, 212, 90, 0.06)']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          style={styles.activeFill}
-          pointerEvents="none"
+          {...ignoreTouches(styles.activeFill)}
         />
       ) : null}
       {/* The yellow edge marks "you are here" without relying on the fill alone. */}
@@ -316,11 +316,10 @@ export function Sidebar({
             colors={['rgba(255, 212, 90, 0.16)', 'rgba(255, 212, 90, 0.04)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.proFill}
-            pointerEvents="none"
+            {...ignoreTouches(styles.proFill)}
           />
           {/* The gold sweep in the corner, clipped to the card. */}
-          <View style={styles.proSweepClip} pointerEvents="none">
+          <View {...ignoreTouches(styles.proSweepClip)}>
             <LinearGradient
               colors={['rgba(255, 212, 90, 0)', 'rgba(255, 212, 90, 0.55)', 'rgba(255, 212, 90, 0)']}
               start={{ x: 0, y: 0.5 }}
@@ -420,12 +419,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
   },
-  navItemActive: {
-    shadowColor: '#FFD45A',
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 0 },
-  },
+  navItemActive: Platform.select({
+    web: { boxShadow: '0 0 14px rgba(255, 212, 90, 0.18)' },
+    default: {
+      shadowColor: '#FFD45A',
+      shadowOpacity: 0.18,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 0 },
+    },
+  }),
   navItemCollapsed: { justifyContent: 'center', paddingLeft: 0, paddingRight: 0 },
   activeFill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   activeEdge: {

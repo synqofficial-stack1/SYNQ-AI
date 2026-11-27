@@ -3,6 +3,7 @@ import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-nati
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { DataColors } from '@/constants/theme';
+import { ignoreTouches } from '@/lib/pointer';
 import { useTheme } from '@/hooks/use-theme';
 
 // The two charts on the dashboard. Both draw the user's own rows — there is no
@@ -224,15 +225,14 @@ export function ActivityLineChart({
 
           {activePoint ? (
             <View
-              style={[
+              {...ignoreTouches([
                 styles.tooltip,
                 {
                   backgroundColor: '#171717',
                   left: Math.min(Math.max(activePoint.x - 38, 0), Math.max(width - 76, 0)),
                   top: Math.max(activePoint.y - 34, 0),
                 },
-              ]}
-              pointerEvents="none"
+              ])}
             >
               <Text style={styles.tooltipText}>
                 {days[active!].count} {unit}
@@ -321,7 +321,7 @@ export function DonutChart({
         </G>
       </Svg>
 
-      <View style={styles.donutCenter} pointerEvents="none">
+      <View {...ignoreTouches(styles.donutCenter)}>
         <Text style={[styles.donutTotal, { color: theme.text }]}>{total}</Text>
         <Text style={[styles.donutCaption, { color: theme.textSecondary }]}>{centerLabel}</Text>
       </View>
@@ -475,14 +475,13 @@ export function MultiLineChart({
 
           {active !== null ? (
             <View
-              pointerEvents="none"
-              style={[
+              {...ignoreTouches([
                 multiStyles.multiTooltip,
                 {
                   left: Math.min(Math.max(xFor(active) - 70, 0), Math.max(width - 140, 0)),
                   top: 4,
                 },
-              ]}
+              ])}
             >
               <Text style={multiStyles.multiTooltipTitle}>{monthDay(dates[active])}</Text>
               {series.map((line) => (

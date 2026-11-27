@@ -9,6 +9,27 @@ import { WorkspaceProvider } from '@/hooks/use-workspace';
 import { loadAppearancePreference, syncAppearanceWithAccount } from '@/lib/appearance';
 import { PhoneFrame } from '@/components/phone-frame';
 
+const PAGE_TITLES: Record<string, string> = {
+  '/': 'Dashboard',
+  '/login': 'Sign in',
+  '/signup': 'Create account',
+  '/forgot-password': 'Reset password',
+  '/reset-password': 'Choose a new password',
+  '/sales': 'Sales',
+  '/marketing': 'Marketing',
+  '/company': 'Company',
+  '/plugins': 'Plugins',
+  '/history': 'History',
+  '/settings': 'Settings',
+  '/upgrade': 'Plans',
+  '/ceo': 'Control Center',
+  '/privacy': 'Privacy policy',
+  '/delete-account': 'Delete account',
+  '/workspace-setup': 'Set up your workspace',
+  '/import-leads': 'Import leads',
+  '/ai-mode': 'Ask Synq',
+};
+
 /** Applies the theme saved on the account each time someone signs in. */
 function AppearanceSync() {
   const userId = useSession().session?.user.id;
@@ -38,7 +59,11 @@ export default function RootLayout() {
     root.style.colorScheme = colorScheme;
     root.style.setProperty('--synq-autofill-text', onSignInScreen ? '#ffffff' : palette.text);
     document.body.style.backgroundColor = palette.background;
-  }, [colorScheme, palette, onSignInScreen]);
+    const page =
+      PAGE_TITLES[pathname] ??
+      (pathname.startsWith('/plugins/') ? 'Plugin' : pathname.startsWith('/history/') ? 'History' : '');
+    document.title = page ? `${page} · Synq AI` : 'Synq AI';
+  }, [colorScheme, palette, onSignInScreen, pathname]);
 
   const base = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   return (
